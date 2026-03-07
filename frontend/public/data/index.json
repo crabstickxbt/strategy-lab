@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "generatedAt": "2026-03-07T16:00:30.466Z",
-    "formulaVersion": "snp1-v1",
-    "commitSha": "6fec1f2",
+    "generatedAt": "2026-03-07T16:15:59.942Z",
+    "formulaVersion": "snp1-v2-timeframes",
+    "commitSha": "3be5c33",
     "assumptions": [
       "Universe constrained to mock S&P500 constituents listed in script",
       "Trading calendar uses weekdays only and omits exchange holidays",
@@ -12,18 +12,51 @@
       "Optimistic execution uses average(open,close) for both legs",
       "Benchmark SP500 path is deterministic synthetic close series",
       "Mock provider can be replaced by real provider via MarketDataProvider interface"
-    ]
+    ],
+    "supportedTimeframesYears": [
+      5,
+      10,
+      25
+    ],
+    "defaultTimeframeYears": 25,
+    "defaultScenario": "optimistic"
   },
   "artifacts": [
     {
       "scenario": "optimistic",
-      "json": "/data/sp500_vs_snp1_optimistic.json",
-      "csv": "/data/sp500_vs_snp1_optimistic.csv"
+      "timeframeYears": 5,
+      "json": "/data/sp500_vs_snp1_optimistic_5y.json",
+      "csv": "/data/sp500_vs_snp1_optimistic_5y.csv"
     },
     {
       "scenario": "pessimistic",
-      "json": "/data/sp500_vs_snp1_pessimistic.json",
-      "csv": "/data/sp500_vs_snp1_pessimistic.csv"
+      "timeframeYears": 5,
+      "json": "/data/sp500_vs_snp1_pessimistic_5y.json",
+      "csv": "/data/sp500_vs_snp1_pessimistic_5y.csv"
+    },
+    {
+      "scenario": "optimistic",
+      "timeframeYears": 10,
+      "json": "/data/sp500_vs_snp1_optimistic_10y.json",
+      "csv": "/data/sp500_vs_snp1_optimistic_10y.csv"
+    },
+    {
+      "scenario": "pessimistic",
+      "timeframeYears": 10,
+      "json": "/data/sp500_vs_snp1_pessimistic_10y.json",
+      "csv": "/data/sp500_vs_snp1_pessimistic_10y.csv"
+    },
+    {
+      "scenario": "optimistic",
+      "timeframeYears": 25,
+      "json": "/data/sp500_vs_snp1_optimistic_25y.json",
+      "csv": "/data/sp500_vs_snp1_optimistic_25y.csv"
+    },
+    {
+      "scenario": "pessimistic",
+      "timeframeYears": 25,
+      "json": "/data/sp500_vs_snp1_pessimistic_25y.json",
+      "csv": "/data/sp500_vs_snp1_pessimistic_25y.csv"
     }
   ]
 }
