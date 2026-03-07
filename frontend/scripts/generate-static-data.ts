@@ -30,6 +30,16 @@ type ScenarioPayload = {
     tradingDaysPerYear: number;
     years: number;
     execution: ExecutionParams;
+    dataSource: {
+      provider: string;
+      benchmarkSymbol: string;
+      benchmarkProxyLabel: string;
+      constituentSymbols: string[];
+      symbolToStooq: Record<string, string>;
+      dateRange: { start: string; end: string };
+      generatedFromAlignedTradingDates: boolean;
+      rankingMethod: string;
+    };
   };
   series: {
     dates: string[];
@@ -46,12 +56,13 @@ type ScenarioPayload = {
 };
 
 type MarketDataProvider = {
-  getData(): { dates: string[]; benchmarkClose: number[]; constituents: ConstituentSeries[] };
+  getData(years: number): Promise<{ dates: string[]; benchmarkClose: number[]; constituents: ConstituentSeries[] }>;
 };
 
+type SourceSymbol = { symbol: string; stooq: string; sharesOutstanding: number };
+
 const TRADING_DAYS = 252;
-const END_DATE = new Date("2026-03-07T00:00:00Z");
-const FORMULA_VERSION = "snp1-snp10-v3-base-execution";
+const FORMULA_VERSION = "real-stooq-v1";
 const TIMEFRAMES = [5, 10, 25, 50] as const;
 
 const BASE_EXECUTION: ExecutionParams = {
@@ -64,59 +75,26 @@ const BASE_EXECUTION: ExecutionParams = {
   snp10BufferRanks: 2,
 };
 
-const CONSTITUENTS: Array<{ symbol: string; startPrice: number; sharesOutstanding: number; drift: number; vol: number }> = [
-  { symbol: "AAPL", startPrice: 30, sharesOutstanding: 16_800_000_000, drift: 0.16, vol: 0.28 },
-  { symbol: "MSFT", startPrice: 25, sharesOutstanding: 7_500_000_000, drift: 0.15, vol: 0.24 },
-  { symbol: "AMZN", startPrice: 18, sharesOutstanding: 10_000_000_000, drift: 0.14, vol: 0.33 },
-  { symbol: "NVDA", startPrice: 12, sharesOutstanding: 2_500_000_000, drift: 0.22, vol: 0.45 },
-  { symbol: "GOOGL", startPrice: 20, sharesOutstanding: 12_400_000_000, drift: 0.13, vol: 0.27 },
-  { symbol: "META", startPrice: 15, sharesOutstanding: 2_600_000_000, drift: 0.14, vol: 0.34 },
-  { symbol: "BRK.B", startPrice: 45, sharesOutstanding: 2_300_000_000, drift: 0.1, vol: 0.2 },
-  { symbol: "XOM", startPrice: 28, sharesOutstanding: 4_100_000_000, drift: 0.09, vol: 0.26 },
-  { symbol: "JPM", startPrice: 22, sharesOutstanding: 2_900_000_000, drift: 0.09, vol: 0.23 },
-  { symbol: "V", startPrice: 35, sharesOutstanding: 2_100_000_000, drift: 0.11, vol: 0.22 },
+const BENCHMARK = { symbol: "SPX", stooq: "^spx" };
+
+const CONSTITUENTS: SourceSymbol[] = [
+  { symbol: "XOM", stooq: "xom.us", sharesOutstanding: 4_250_000_000 },
+  { symbol: "IBM", stooq: "ibm.us", sharesOutstanding: 910_000_000 },
+  { symbol: "GE", stooq: "ge.us", sharesOutstanding: 1_090_000_000 },
+  { symbol: "KO", stooq: "ko.us", sharesOutstanding: 4_320_000_000 },
+  { symbol: "PG", stooq: "pg.us", sharesOutstanding: 2_350_000_000 },
+  { symbol: "JNJ", stooq: "jnj.us", sharesOutstanding: 2_410_000_000 },
+  { symbol: "CVX", stooq: "cvx.us", sharesOutstanding: 1_900_000_000 },
+  { symbol: "MMM", stooq: "mmm.us", sharesOutstanding: 550_000_000 },
+  { symbol: "CAT", stooq: "cat.us", sharesOutstanding: 500_000_000 },
+  { symbol: "MRK", stooq: "mrk.us", sharesOutstanding: 2_530_000_000 },
 ];
 
-function businessDaysEndingAt(end: Date, count: number): string[] {
-  const out: string[] = [];
-  const cursor = new Date(end);
-  while (out.length < count) {
-    const day = cursor.getUTCDay();
-    if (day >= 1 && day <= 5) out.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
-  return out.reverse();
-}
-
-function hash64(stream: string, idx: number, salt: number): bigint {
-  const input = `${stream}:${idx}:${salt}`;
-  let h = 1469598103934665603n;
-  for (let i = 0; i < input.length; i += 1) {
-    h ^= BigInt(input.charCodeAt(i));
-    h *= 1099511628211n;
-    h &= (1n << 64n) - 1n;
-  }
-  return h;
-}
-
-function uniform01(stream: string, idx: number, salt: number): number {
-  const value = hash64(stream, idx, salt);
-  return Number(value + 1n) / Number((1n << 64n) + 1n);
-}
-
-function normal(stream: string, idx: number): number {
-  const u1 = uniform01(stream, idx, 1);
-  const u2 = uniform01(stream, idx, 2);
-  const radius = Math.sqrt(-2 * Math.log(u1));
-  const theta = 2 * Math.PI * u2;
-  return radius * Math.cos(theta);
-}
-
-function computeStats(returns: number[], levelsWithBase: number[]): StrategyStats {
+function computeStats(returns: number[], levels: number[]): StrategyStats {
   const periods = returns.length;
   const years = periods / TRADING_DAYS;
-  const ending = levelsWithBase[levelsWithBase.length - 1];
-  const starting = levelsWithBase[0];
+  const ending = levels[levels.length - 1];
+  const starting = levels[0];
   const cagr = Math.pow(ending / starting, 1 / years) - 1;
 
   const mean = returns.reduce((a, b) => a + b, 0) / Math.max(returns.length, 1);
@@ -125,10 +103,10 @@ function computeStats(returns: number[], levelsWithBase: number[]): StrategyStat
   const annReturn = mean * TRADING_DAYS;
   const sharpe = annVol > 0 ? annReturn / annVol : 0;
 
-  let peak = levelsWithBase[0];
+  let peak = levels[0];
   let maxDrawdown = 0;
-  for (let i = 1; i < levelsWithBase.length; i += 1) {
-    const level = levelsWithBase[i];
+  for (let i = 1; i < levels.length; i += 1) {
+    const level = levels[i];
     if (level > peak) peak = level;
     const drawdown = level / peak - 1;
     if (drawdown < maxDrawdown) maxDrawdown = drawdown;
@@ -137,65 +115,8 @@ function computeStats(returns: number[], levelsWithBase: number[]): StrategyStat
   return { cagr, annVol, maxDrawdown, sharpe };
 }
 
-class MockMarketDataProvider implements MarketDataProvider {
-  private years: number;
-  constructor(years: number) { this.years = years; }
-
-  getData() {
-    const totalDays = TRADING_DAYS * this.years;
-    const dates = businessDaysEndingAt(END_DATE, totalDays);
-    const constituents = CONSTITUENTS.map((c) => ({
-      symbol: c.symbol,
-      sharesOutstanding: c.sharesOutstanding,
-      bars: this.generateBars(c.symbol, c.startPrice, c.drift, c.vol, totalDays),
-    }));
-
-    const benchmarkClose = this.generateBenchmark(totalDays);
-
-    return { dates, benchmarkClose, constituents };
-  }
-
-  private generateBars(symbol: string, startPrice: number, drift: number, vol: number, totalDays: number): Ohlc[] {
-    const bars: Ohlc[] = [];
-    let prevClose = startPrice;
-
-    const muDaily = drift / TRADING_DAYS;
-    const sigmaDaily = vol / Math.sqrt(TRADING_DAYS);
-
-    for (let i = 0; i < totalDays; i += 1) {
-      const overnight = normal(`${symbol}:overnight`, i) * (sigmaDaily * 0.35);
-      const intraday = normal(`${symbol}:intraday`, i) * (sigmaDaily * 0.8);
-      const open = Math.max(0.5, prevClose * (1 + overnight));
-      const close = Math.max(0.5, open * (1 + muDaily + intraday));
-
-      const rangeNoise = Math.abs(normal(`${symbol}:range`, i)) * sigmaDaily * 1.2;
-      const highBase = Math.max(open, close);
-      const lowBase = Math.min(open, close);
-      const high = highBase * (1 + rangeNoise);
-      const low = Math.max(0.25, lowBase * (1 - rangeNoise));
-
-      bars.push({ open, high, low, close });
-      prevClose = close;
-    }
-
-    return bars;
-  }
-
-  private generateBenchmark(totalDays: number): number[] {
-    const out: number[] = [];
-    let level = 100;
-
-    const muDaily = 0.1 / TRADING_DAYS;
-    const sigmaDaily = 0.18 / Math.sqrt(TRADING_DAYS);
-
-    for (let i = 0; i < totalDays; i += 1) {
-      const ret = muDaily + sigmaDaily * normal("SP500", i);
-      level *= 1 + ret;
-      out.push(level);
-    }
-
-    return out;
-  }
+function averageOpenClose(bar: Ohlc): number {
+  return (bar.open + bar.close) / 2;
 }
 
 function marketCaps(constituents: ConstituentSeries[], dayIndex: number): Array<{ symbol: string; cap: number }> {
@@ -204,12 +125,78 @@ function marketCaps(constituents: ConstituentSeries[], dayIndex: number): Array<
     .sort((a, b) => b.cap - a.cap);
 }
 
-function averageOpenClose(bar: Ohlc): number {
-  return (bar.open + bar.close) / 2;
+async function fetchStooqDailyCsv(stooqSymbol: string): Promise<Map<string, Ohlc>> {
+  const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(stooqSymbol)}&i=d`;
+  const res = await fetch(url, { headers: { "user-agent": "strategy-lab-data-generator/1.0" } });
+  if (!res.ok) throw new Error(`Failed fetch ${stooqSymbol}: HTTP ${res.status}`);
+  const csv = await res.text();
+  const lines = csv.trim().split(/\r?\n/);
+  if (lines.length <= 1) throw new Error(`No rows for ${stooqSymbol}`);
+
+  const out = new Map<string, Ohlc>();
+  for (let i = 1; i < lines.length; i += 1) {
+    const [date, open, high, low, close] = lines[i].split(",");
+    const o = Number(open);
+    const h = Number(high);
+    const l = Number(low);
+    const c = Number(close);
+    if (!date || !Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) continue;
+    if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
+    out.set(date, { open: o, high: h, low: l, close: c });
+  }
+  return out;
+}
+
+class StooqMarketDataProvider implements MarketDataProvider {
+  private benchmarkBarsByDate = new Map<string, Ohlc>();
+  private symbolsBarsByDate = new Map<string, Map<string, Ohlc>>();
+  private alignedDates: string[] = [];
+
+  async init() {
+    this.benchmarkBarsByDate = await fetchStooqDailyCsv(BENCHMARK.stooq);
+    for (const c of CONSTITUENTS) {
+      this.symbolsBarsByDate.set(c.symbol, await fetchStooqDailyCsv(c.stooq));
+    }
+
+    const candidate = [...this.benchmarkBarsByDate.keys()]
+      .filter((d) => CONSTITUENTS.every((c) => this.symbolsBarsByDate.get(c.symbol)!.has(d)))
+      .sort();
+
+    if (candidate.length < 50 * TRADING_DAYS) {
+      throw new Error(`Aligned date count too small: ${candidate.length}`);
+    }
+    this.alignedDates = candidate;
+  }
+
+  async getData(years: number) {
+    if (!this.alignedDates.length) throw new Error("Provider not initialized");
+
+    const daysNeeded = years * TRADING_DAYS;
+    const dates = this.alignedDates.slice(-daysNeeded);
+    if (dates.length < daysNeeded) throw new Error(`Not enough aligned bars for ${years}Y window`);
+
+    const benchmarkRaw = dates.map((d) => this.benchmarkBarsByDate.get(d)!.close);
+    const benchmarkBase = benchmarkRaw[0];
+    const benchmarkClose = benchmarkRaw.map((x) => (x / benchmarkBase) * 100);
+
+    const constituents: ConstituentSeries[] = CONSTITUENTS.map((c) => ({
+      symbol: c.symbol,
+      sharesOutstanding: c.sharesOutstanding,
+      bars: dates.map((d) => this.symbolsBarsByDate.get(c.symbol)!.get(d)!),
+    }));
+
+    return { dates, benchmarkClose, constituents };
+  }
+
+  dateRangeFor(years: number) {
+    const daysNeeded = years * TRADING_DAYS;
+    const dates = this.alignedDates.slice(-daysNeeded);
+    return { start: dates[0], end: dates[dates.length - 1] };
+  }
 }
 
 function simulateSnp1(
-  providerData: ReturnType<MarketDataProvider["getData"]>,
+  providerData: Awaited<ReturnType<MarketDataProvider["getData"]>>,
   scenario: ScenarioName,
   metadataBase: Omit<ScenarioPayload["metadata"], "scenario" | "strategy">
 ): ScenarioPayload {
@@ -294,14 +281,14 @@ function simulateSnp1(
     series: { dates, sp500: benchmarkClose, strategy: levels, sp500Returns, strategyReturns: returns },
     diagnostics: { holdings: holdingByDate, executedRebalances },
     stats: {
-      sp500: computeStats(sp500Returns, [100, ...benchmarkClose]),
-      strategy: computeStats(returns, [100, ...levels]),
+      sp500: computeStats(sp500Returns, benchmarkClose),
+      strategy: computeStats(returns, levels),
     },
   };
 }
 
 function simulateSnp10Base(
-  providerData: ReturnType<MarketDataProvider["getData"]>,
+  providerData: Awaited<ReturnType<MarketDataProvider["getData"]>>,
   metadataBase: Omit<ScenarioPayload["metadata"], "scenario" | "strategy">
 ): ScenarioPayload {
   const { dates, constituents, benchmarkClose } = providerData;
@@ -384,8 +371,8 @@ function simulateSnp10Base(
     series: { dates, sp500: benchmarkClose, strategy: levels, sp500Returns, strategyReturns: returns },
     diagnostics: { holdings, executedRebalances },
     stats: {
-      sp500: computeStats(sp500Returns, [100, ...benchmarkClose]),
-      strategy: computeStats(returns, [100, ...levels]),
+      sp500: computeStats(sp500Returns, benchmarkClose),
+      strategy: computeStats(returns, levels),
     },
   };
 }
@@ -421,7 +408,7 @@ function getCommitSha(): string {
   }
 }
 
-function main() {
+async function main() {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const projectRoot = path.resolve(scriptDir, "..");
   const outDir = path.join(projectRoot, "public", "data");
@@ -429,22 +416,27 @@ function main() {
 
   const generatedAt = new Date().toISOString();
   const commitSha = getCommitSha();
+
+  const provider = new StooqMarketDataProvider();
+  await provider.init();
+
+  const symbolToStooq = Object.fromEntries(CONSTITUENTS.map((c) => [c.symbol, c.stooq]));
+
   const assumptions = [
-    "Universe constrained to mock S&P500 constituents listed in script",
-    "Trading calendar uses weekdays only and omits exchange holidays",
-    "Signals formed from close-price market caps on day t and executed at day t+1 open",
-    "Base scenario applies explicit per-turnover execution costs and hysteresis to reduce churn",
-    "SNP1 base rotates only when leader exceeds incumbent by configured bps threshold",
-    "SNP10 base uses sticky rank buffer around top-10 edges before membership changes",
-    "Optimistic/Pessimistic SNP1 remain stress bounds using favorable/adverse fills",
-    "Benchmark SP500 path is deterministic synthetic close series",
+    "Daily OHLC for benchmark and all strategy symbols is fetched from Stooq CSV endpoint (no auth).",
+    "Benchmark uses ^SPX (S&P 500 index) close series, normalized to 100 at each timeframe start.",
+    "Universe is a fixed 10-stock long-history proxy set, not full historical S&P 500 constituents.",
+    "SNP1/SNP10 ranking uses proxy market cap = daily close * static shares outstanding constants in generator.",
+    "Shares outstanding are modern approximations and are not reconstructed point-in-time historically.",
+    "Only dates available across benchmark + all 10 symbols are used (intersection alignment).",
+    "Signals use market-cap ranking at day t close and execute on day t+1.",
+    "Base scenario applies explicit turnover cost + hysteresis; optimistic/pessimistic are fill stress bounds.",
   ];
 
   const artifacts: Array<{ strategy: StrategyName; scenario: ScenarioName; timeframeYears: number; json: string; csv: string }> = [];
 
   for (const years of TIMEFRAMES) {
-    const provider = new MockMarketDataProvider(years);
-    const marketData = provider.getData();
+    const marketData = await provider.getData(years);
     const metadataBase = {
       generatedAt,
       formulaVersion: FORMULA_VERSION,
@@ -453,6 +445,16 @@ function main() {
       tradingDaysPerYear: TRADING_DAYS,
       years,
       execution: BASE_EXECUTION,
+      dataSource: {
+        provider: "stooq",
+        benchmarkSymbol: BENCHMARK.stooq,
+        benchmarkProxyLabel: "S&P 500 index proxy (^SPX)",
+        constituentSymbols: CONSTITUENTS.map((c) => c.symbol),
+        symbolToStooq,
+        dateRange: provider.dateRangeFor(years),
+        generatedFromAlignedTradingDates: true,
+        rankingMethod: "close * static sharesOutstanding proxy",
+      },
     };
 
     const payloads: ScenarioPayload[] = [
@@ -485,6 +487,15 @@ function main() {
       commitSha,
       assumptions,
       execution: BASE_EXECUTION,
+      dataSource: {
+        provider: "stooq",
+        benchmarkSymbol: BENCHMARK.stooq,
+        benchmarkProxyLabel: "S&P 500 index proxy (^SPX)",
+        constituentSymbols: CONSTITUENTS.map((c) => c.symbol),
+        symbolToStooq,
+        rankingMethod: "close * static sharesOutstanding proxy",
+        alignedUniverseCount: CONSTITUENTS.length,
+      },
       supportedTimeframesYears: [...TIMEFRAMES],
       supportedStrategies: ["snp1", "snp10"],
       supportedScenariosByStrategy: {
@@ -502,4 +513,7 @@ function main() {
   console.log(`Generated static data into ${outDir}`);
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

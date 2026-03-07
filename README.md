@@ -1,88 +1,49 @@
-# Strategy Lab (SP500 vs SNP1)
+# Strategy Lab (SP500 vs SNP1/SNP10)
 
-This project now supports **fully static GitHub Pages deployment** with pre-rendered scenario pages and precomputed datasets.
+Static Strategy Lab deployment with precomputed artifacts in `docs/data` and selector-based UI in `docs/index.html`.
 
-## Strategy definition (authoritative)
+## Data source (now real historical OHLC)
 
-- **Universe:** S&P 500 constituents only
-- **SNP1 rule:** on each trading day, hold the stock with the highest market cap in the S&P 500 universe
-- **When top1 changes at day `t`:** execute swap on the next available trading day `t+1`
-  - **Pessimistic:** sell old holding at `LOW(t+1)`, buy new holding at `HIGH(t+1)`
-  - **Optimistic:** both legs at `avg(OPEN(t+1), CLOSE(t+1))`
-- Compare each SNP1 variant against an SP500 benchmark
+The pipeline now uses **real daily OHLC bars** from Stooq CSV (no-auth):
 
-## Static data generation
+- Benchmark proxy: `^SPX` (S&P 500 index), normalized to 100 at each timeframe start
+- Strategy symbols (fixed long-history proxy universe): `XOM, IBM, GE, KO, PG, JNJ, CVX, MMM, CAT, MRK`
+- Symbol feed map is encoded in each JSON artifact under `metadata.dataSource.symbolToStooq`
 
-A deterministic offline generator produces artifacts under `frontend/public/data`:
+## Important realism assumptions (auditable)
 
-- `index.json` (manifest)
-- `sp500_vs_snp1_optimistic.json`
-- `sp500_vs_snp1_optimistic.csv`
-- `sp500_vs_snp1_pessimistic.json`
-- `sp500_vs_snp1_pessimistic.csv`
+Because perfect historical S&P 500 constituent + point-in-time market cap data is not available from this no-auth source, the generator uses transparent approximations:
 
-Each JSON payload includes metadata:
-- `generatedAt`
-- `formulaVersion`
-- `commitSha`
-- `assumptions`
+1. **Universe approximation:** fixed 10-stock long-history proxy universe (not full historical S&P 500 membership)
+2. **Ranking approximation for SNP1/SNP10:** market-cap proxy = `close * static sharesOutstanding`
+3. **Shares outstanding:** static modern approximations hardcoded in generator (not historical per-date reconstruction)
+4. **Date alignment:** only dates present in benchmark and all strategy symbols are used (intersection)
 
-The current implementation uses deterministic synthetic/mock market data through a provider interface (`MarketDataProvider`) so a real data source can be plugged in later.
+All assumptions are emitted in:
+- `frontend/public/data/index.json` (`metadata.assumptions`)
+- each scenario JSON (`metadata.assumptions` + `metadata.dataSource`)
 
-Generate data:
+## Strategy behavior
 
-```bash
-cd frontend
-npm install
-npm run generate:data
-```
+- **SNP1:** hold top-1 by proxy market cap; switch on next day under scenario fill rules
+- **SNP10:** hold top-10 by proxy market cap, cap-weighted by proxy market cap
+- **Base scenario:** explicit turnover costs + hysteresis controls
+- **Optimistic/Pessimistic (SNP1):** execution stress bounds
 
-## Frontend
+## Timeframes / UX
 
-Default UX showcases pre-rendered artifacts:
-- `/optimistic`
-- `/pessimistic`
+Artifacts are generated for **5Y / 10Y / 25Y / 50Y** and selector mapping is preserved via `docs/data/index.json`.
 
-The prior interactive simulator is still available at:
-- `/simulator`
-
-Build and local preview:
+## Generate + deploy data
 
 ```bash
 cd frontend
 npm install
 npm run generate:data
-npm run build
-npx serve out
+
+cd ..
+mkdir -p docs/data
+cp -f frontend/public/data/* docs/data/
 ```
 
-## Checks
-
-```bash
-cd frontend
-npm install
-npm run typecheck
-npm run lint
-npm run build
-```
-
-`next.config.mjs` uses `output: "export"`, so build output is written to `frontend/out`.
-
-## GitHub Pages workflow
-
-Workflow file: `.github/workflows/deploy-pages.yml`
-
-Pipeline steps:
-1. Install frontend dependencies (`npm ci`)
-2. Generate static data (`npm run generate:data`)
-3. Typecheck + lint
-4. Build/export Next.js static site
-5. Upload `frontend/out` via `actions/upload-pages-artifact`
-6. Deploy via `actions/deploy-pages`
-
-### GitHub Pages setup notes
-
-In your repository settings:
-1. Enable **GitHub Pages** and set source to **GitHub Actions**
-2. Ensure default branch is `main` (or adjust workflow trigger)
-3. Push to `main` or trigger workflow manually from Actions tab
+Then commit to `main`; GitHub Pages serves from `main:/docs`.

@@ -1,17 +1,17 @@
 {
   "metadata": {
-    "generatedAt": "2026-03-07T16:37:34.336Z",
-    "formulaVersion": "snp1-snp10-v3-base-execution",
-    "commitSha": "288f55f",
+    "generatedAt": "2026-03-07T16:47:11.744Z",
+    "formulaVersion": "real-stooq-v1",
+    "commitSha": "ddc19db",
     "assumptions": [
-      "Universe constrained to mock S&P500 constituents listed in script",
-      "Trading calendar uses weekdays only and omits exchange holidays",
-      "Signals formed from close-price market caps on day t and executed at day t+1 open",
-      "Base scenario applies explicit per-turnover execution costs and hysteresis to reduce churn",
-      "SNP1 base rotates only when leader exceeds incumbent by configured bps threshold",
-      "SNP10 base uses sticky rank buffer around top-10 edges before membership changes",
-      "Optimistic/Pessimistic SNP1 remain stress bounds using favorable/adverse fills",
-      "Benchmark SP500 path is deterministic synthetic close series"
+      "Daily OHLC for benchmark and all strategy symbols is fetched from Stooq CSV endpoint (no auth).",
+      "Benchmark uses ^SPX (S&P 500 index) close series, normalized to 100 at each timeframe start.",
+      "Universe is a fixed 10-stock long-history proxy set, not full historical S&P 500 constituents.",
+      "SNP1/SNP10 ranking uses proxy market cap = daily close * static shares outstanding constants in generator.",
+      "Shares outstanding are modern approximations and are not reconstructed point-in-time historically.",
+      "Only dates available across benchmark + all 10 symbols are used (intersection alignment).",
+      "Signals use market-cap ranking at day t close and execute on day t+1.",
+      "Base scenario applies explicit turnover cost + hysteresis; optimistic/pessimistic are fill stress bounds."
     ],
     "execution": {
       "signalLagDays": 1,
@@ -21,6 +21,37 @@
       "totalCostBpsPerTurnover": 12,
       "snp1LeaderAdvantageBps": 35,
       "snp10BufferRanks": 2
+    },
+    "dataSource": {
+      "provider": "stooq",
+      "benchmarkSymbol": "^spx",
+      "benchmarkProxyLabel": "S&P 500 index proxy (^SPX)",
+      "constituentSymbols": [
+        "XOM",
+        "IBM",
+        "GE",
+        "KO",
+        "PG",
+        "JNJ",
+        "CVX",
+        "MMM",
+        "CAT",
+        "MRK"
+      ],
+      "symbolToStooq": {
+        "XOM": "xom.us",
+        "IBM": "ibm.us",
+        "GE": "ge.us",
+        "KO": "ko.us",
+        "PG": "pg.us",
+        "JNJ": "jnj.us",
+        "CVX": "cvx.us",
+        "MMM": "mmm.us",
+        "CAT": "cat.us",
+        "MRK": "mrk.us"
+      },
+      "rankingMethod": "close * static sharesOutstanding proxy",
+      "alignedUniverseCount": 10
     },
     "supportedTimeframesYears": [
       5,
