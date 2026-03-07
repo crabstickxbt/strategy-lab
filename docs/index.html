@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Strategy Lab — SP500 vs SNP1</title>
+  <style>
+    body{font-family:Inter,system-ui,Arial,sans-serif;background:#0b1020;color:#eaf0ff;margin:0}
+    .wrap{max-width:1100px;margin:0 auto;padding:24px}
+    .card{background:#141b32;border:1px solid #22305f;border-radius:12px;padding:16px;margin:16px 0}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    a.btn{padding:8px 12px;border-radius:8px;background:#22305f;color:#fff;text-decoration:none}
+    a.btn.active{background:#4a69c7}
+    table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px solid #24315e;text-align:left}
+    svg{width:100%;height:auto;background:#0f1730;border-radius:8px}
+    .sp{color:#7cb4ff}.sn{color:#ff916b}.muted{color:#9aa6cf}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Strategy Lab</h1>
+    <p>Static GitHub Pages deployment. Universe: <b>S&P 500 only</b>. SNP1 holds daily Top-1 by market cap, with next-day execution assumptions.</p>
+
+    <div class="card row" id="nav"></div>
+
+    <div class="card">
+      <h2 id="title">Scenario</h2>
+      <p id="desc" class="muted"></p>
+      <svg id="chart" viewBox="0 0 900 320" aria-label="Equity chart"></svg>
+      <p class="muted" id="range"></p>
+    </div>
+
+    <div class="card">
+      <h2>Stats</h2>
+      <table>
+        <thead><tr><th>Metric</th><th>SP500</th><th>SNP1</th></tr></thead>
+        <tbody id="stats"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+(async function(){
+  const manifest = await fetch('./data/index.json').then(r=>r.json());
+  const params = new URLSearchParams(location.search);
+  const scenario = params.get('s') || 'optimistic';
+  const slug = scenario === 'pessimistic' ? 'sp500_vs_snp1_pessimistic' : 'sp500_vs_snp1_optimistic';
+
+  const nav = document.getElementById('nav');
+  nav.innerHTML = [
+    ['optimistic','Optimistic execution'],
+    ['pessimistic','Pessimistic execution']
+  ].map(([k,l])=>`<a class="btn ${k===scenario?'active':''}" href="?s=${k}">${l}</a>`).join('') +
+    `<a class="btn" href="./data/${slug}.csv">Download CSV</a>`;
+
+  const data = await fetch(`./data/${slug}.json`).then(r=>r.json());
+  document.getElementById('title').textContent = data.title || slug;
+  document.getElementById('desc').textContent = data.description || '';
+
+  const sp = data.series.find(x=>x.label.toLowerCase().includes('sp500'));
+  const sn = data.series.find(x=>x.label.toLowerCase().includes('snp1'));
+  const d = sp.dates;
+  document.getElementById('range').textContent = `${d[0]} → ${d[d.length-1]} · formula ${data.metadata?.formulaVersion || 'v1'}`;
+
+  const all = [...sp.values, ...sn.values];
+  const min = Math.min(...all), max = Math.max(...all), W=900,H=320;
+  const path=(arr)=>arr.map((v,i)=>{
+    const x=i/(arr.length-1)*W; const y=H-((v-min)/(max-min||1))*H; return `${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  const svg=document.getElementById('chart');
+  svg.innerHTML=`<path d="${path(sp.values)}" fill="none" stroke="#7cb4ff" stroke-width="2.2"/>`+
+                `<path d="${path(sn.values)}" fill="none" stroke="#ff916b" stroke-width="2.2"/>`;
+
+  const pct=n=>`${(n*100).toFixed(2)}%`;
+  const s1=sp.stats,s2=sn.stats;
+  document.getElementById('stats').innerHTML = `
+    <tr><td>CAGR</td><td>${pct(s1.cagr)}</td><td>${pct(s2.cagr)}</td></tr>
+    <tr><td>Annual Volatility</td><td>${pct(s1.annVol)}</td><td>${pct(s2.annVol)}</td></tr>
+    <tr><td>Max Drawdown</td><td>${pct(s1.maxDrawdown)}</td><td>${pct(s2.maxDrawdown)}</td></tr>
+    <tr><td>Sharpe (rf=0)</td><td>${s1.sharpe.toFixed(2)}</td><td>${s2.sharpe.toFixed(2)}</td></tr>`;
+})();
+</script>
+</body>
+</html>
