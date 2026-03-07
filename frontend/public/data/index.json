@@ -1,11 +1,13 @@
 {
   "metadata": {
-    "generatedAt": "2026-03-07T16:47:11.744Z",
-    "formulaVersion": "real-stooq-v1",
-    "commitSha": "ddc19db",
+    "generatedAt": "2026-03-07T17:21:13.271Z",
+    "formulaVersion": "real-stooq-tr-v1",
+    "commitSha": "9beef77",
     "assumptions": [
       "Daily OHLC for benchmark and all strategy symbols is fetched from Stooq CSV endpoint (no auth).",
-      "Benchmark uses ^SPX (S&P 500 index) close series, normalized to 100 at each timeframe start.",
+      "Return mode is total return (TR): daily return = price return + dividend return (or source-provided TR where available).",
+      "Benchmark prefers Stooq TR symbols (^spxt, ^spxtr, ^sp500tr); if unavailable, falls back to ^SPX plus modeled dividend proxy yield.",
+      "SNP1/SNP10 apply modeled dividend yield by symbol to produce strategy total-return streams.",
       "Universe is a fixed 10-stock long-history proxy set, not full historical S&P 500 constituents.",
       "SNP1/SNP10 ranking uses proxy market cap = daily close * static shares outstanding constants in generator.",
       "Shares outstanding are modern approximations and are not reconstructed point-in-time historically.",
@@ -13,6 +15,7 @@
       "Signals use market-cap ranking at day t close and execute on day t+1.",
       "Base scenario applies explicit turnover cost + hysteresis; optimistic/pessimistic are fill stress bounds."
     ],
+    "returnMode": "total-return",
     "execution": {
       "signalLagDays": 1,
       "executionVenue": "next-day-open",
@@ -22,10 +25,34 @@
       "snp1LeaderAdvantageBps": 35,
       "snp10BufferRanks": 2
     },
+    "dividendModel": {
+      "mode": "proxy",
+      "source": "modeled annual dividend yields (benchmark + constituents)",
+      "benchmarkAnnualYield": 0.018,
+      "constituentAnnualYieldBySymbol": {
+        "XOM": 0.034,
+        "IBM": 0.043,
+        "GE": 0.003,
+        "KO": 0.03,
+        "PG": 0.024,
+        "JNJ": 0.03,
+        "CVX": 0.041,
+        "MMM": 0.036,
+        "CAT": 0.018,
+        "MRK": 0.027
+      },
+      "dailyYieldConvention": "annualYield/252 simple daily carry"
+    },
     "dataSource": {
       "provider": "stooq",
       "benchmarkSymbol": "^spx",
-      "benchmarkProxyLabel": "S&P 500 index proxy (^SPX)",
+      "benchmarkProxyLabel": "S&P 500 price proxy (^SPX) + modeled dividend carry",
+      "benchmarkTotalReturnAvailableFromSource": false,
+      "benchmarkTotalReturnSymbolTried": [
+        "^spxt",
+        "^spxtr",
+        "^sp500tr"
+      ],
       "constituentSymbols": [
         "XOM",
         "IBM",

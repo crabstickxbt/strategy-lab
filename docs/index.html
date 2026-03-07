@@ -20,7 +20,7 @@
 <body>
   <div class="wrap">
     <h1>Strategy Lab</h1>
-    <p>Static GitHub Pages deployment. Compare SP500 with SNP1 (Top-1) and SNP10 (Top-10 cap-weighted) under multiple execution scenarios.</p>
+    <p>Static GitHub Pages deployment in <strong>Total Return (TR)</strong> mode. Compare SP500 with SNP1 (Top-1) and SNP10 (Top-10 cap-weighted) under multiple execution scenarios.</p>
 
     <div class="card row">
       <label class="field">Strategy
@@ -114,7 +114,10 @@
 
     const data = await fetch(`.${artifact.json}`).then(r=>r.json());
     document.getElementById('title').textContent = `${strategy.toUpperCase()} · ${scenarioLabel(scenario)} · ${timeframe}Y`;
-    document.getElementById('desc').textContent = `Execution: ${data.metadata?.execution?.executionVenue || 'n/a'} | cost=${data.metadata?.execution?.totalCostBpsPerTurnover ?? 0} bps per 1x turnover.`;
+    const trMode = data.metadata?.returnMode || 'price-return';
+    const divMode = data.metadata?.dividendModel?.mode || 'unknown';
+    const divSource = data.metadata?.dividendModel?.source || 'n/a';
+    document.getElementById('desc').textContent = `Mode: ${trMode.toUpperCase()} | Dividends: ${divMode} (${divSource}) | Execution: ${data.metadata?.execution?.executionVenue || 'n/a'} | cost=${data.metadata?.execution?.totalCostBpsPerTurnover ?? 0} bps per 1x turnover.`;
     document.getElementById('strategyHead').textContent = strategy.toUpperCase();
 
     const d = data.series.dates;

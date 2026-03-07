@@ -19,6 +19,14 @@ type ExecutionParams = {
   snp10BufferRanks: number;
 };
 
+type DividendModel = {
+  mode: "actual" | "proxy";
+  source: string;
+  benchmarkAnnualYield: number;
+  constituentAnnualYieldBySymbol: Record<string, number>;
+  dailyYieldConvention: string;
+};
+
 type ScenarioPayload = {
   metadata: {
     generatedAt: string;
@@ -29,11 +37,15 @@ type ScenarioPayload = {
     scenario: ScenarioName;
     tradingDaysPerYear: number;
     years: number;
+    returnMode: "total-return";
     execution: ExecutionParams;
+    dividendModel: DividendModel;
     dataSource: {
       provider: string;
       benchmarkSymbol: string;
       benchmarkProxyLabel: string;
+      benchmarkTotalReturnAvailableFromSource: boolean;
+      benchmarkTotalReturnSymbolTried: string[];
       constituentSymbols: string[];
       symbolToStooq: Record<string, string>;
       dateRange: { start: string; end: string };
@@ -62,8 +74,23 @@ type MarketDataProvider = {
 type SourceSymbol = { symbol: string; stooq: string; sharesOutstanding: number };
 
 const TRADING_DAYS = 252;
-const FORMULA_VERSION = "real-stooq-v1";
+const FORMULA_VERSION = "real-stooq-tr-v1";
 const TIMEFRAMES = [5, 10, 25, 50] as const;
+
+const BENCHMARK_TR_CANDIDATES = ["^spxt", "^spxtr", "^sp500tr"];
+const BENCHMARK_DIVIDEND_PROXY_YIELD = 0.018;
+const CONSTITUENT_DIVIDEND_PROXY_YIELD: Record<string, number> = {
+  XOM: 0.034,
+  IBM: 0.043,
+  GE: 0.003,
+  KO: 0.030,
+  PG: 0.024,
+  JNJ: 0.030,
+  CVX: 0.041,
+  MMM: 0.036,
+  CAT: 0.018,
+  MRK: 0.027,
+};
 
 const BASE_EXECUTION: ExecutionParams = {
   signalLagDays: 1,
@@ -119,6 +146,10 @@ function averageOpenClose(bar: Ohlc): number {
   return (bar.open + bar.close) / 2;
 }
 
+function dailyDividendYield(annualYield: number): number {
+  return annualYield / TRADING_DAYS;
+}
+
 function marketCaps(constituents: ConstituentSeries[], dayIndex: number): Array<{ symbol: string; cap: number }> {
   return constituents
     .map((c) => ({ symbol: c.symbol, cap: c.bars[dayIndex].close * c.sharesOutstanding }))
@@ -151,9 +182,26 @@ class StooqMarketDataProvider implements MarketDataProvider {
   private benchmarkBarsByDate = new Map<string, Ohlc>();
   private symbolsBarsByDate = new Map<string, Map<string, Ohlc>>();
   private alignedDates: string[] = [];
+  benchmarkSymbolUsed = BENCHMARK.stooq;
+  benchmarkTotalReturnAvailableFromSource = false;
 
   async init() {
     this.benchmarkBarsByDate = await fetchStooqDailyCsv(BENCHMARK.stooq);
+
+    for (const trSymbol of BENCHMARK_TR_CANDIDATES) {
+      try {
+        const trBars = await fetchStooqDailyCsv(trSymbol);
+        if (trBars.size > 500) {
+          this.benchmarkBarsByDate = trBars;
+          this.benchmarkSymbolUsed = trSymbol;
+          this.benchmarkTotalReturnAvailableFromSource = true;
+          break;
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+
     for (const c of CONSTITUENTS) {
       this.symbolsBarsByDate.set(c.symbol, await fetchStooqDailyCsv(c.stooq));
     }
@@ -176,8 +224,12 @@ class StooqMarketDataProvider implements MarketDataProvider {
     if (dates.length < daysNeeded) throw new Error(`Not enough aligned bars for ${years}Y window`);
 
     const benchmarkRaw = dates.map((d) => this.benchmarkBarsByDate.get(d)!.close);
-    const benchmarkBase = benchmarkRaw[0];
-    const benchmarkClose = benchmarkRaw.map((x) => (x / benchmarkBase) * 100);
+    const benchmarkClose: number[] = [100];
+    for (let i = 1; i < benchmarkRaw.length; i += 1) {
+      const priceRet = benchmarkRaw[i] / benchmarkRaw[i - 1] - 1;
+      const divRet = this.benchmarkTotalReturnAvailableFromSource ? 0 : dailyDividendYield(BENCHMARK_DIVIDEND_PROXY_YIELD);
+      benchmarkClose.push(benchmarkClose[i - 1] * (1 + priceRet + divRet));
+    }
 
     const constituents: ConstituentSeries[] = CONSTITUENTS.map((c) => ({
       symbol: c.symbol,
@@ -243,13 +295,15 @@ function simulateSnp1(
 
       const cash = sharesOld * sellPrice * (1 - sellCost);
       const sharesNew = cash / (buyPrice * (1 + buyCost));
-      valueEnd = sharesNew * newSeries.bars[i].close;
+      const divRet = dailyDividendYield(CONSTITUENT_DIVIDEND_PROXY_YIELD[pendingSwap.to] ?? BENCHMARK_DIVIDEND_PROXY_YIELD);
+      valueEnd = sharesNew * newSeries.bars[i].close * (1 + divRet);
       holding = pendingSwap.to;
       executedRebalances.push({ date: dates[i], details: `${pendingSwap.from}->${pendingSwap.to}` });
       pendingSwap = null;
     } else {
       const holdSeries = symbolMap.get(holding)!;
-      valueEnd = valueStart * (holdSeries.bars[i].close / holdSeries.bars[i - 1].close);
+      const divRet = dailyDividendYield(CONSTITUENT_DIVIDEND_PROXY_YIELD[holding] ?? BENCHMARK_DIVIDEND_PROXY_YIELD);
+      valueEnd = valueStart * (holdSeries.bars[i].close / holdSeries.bars[i - 1].close + divRet);
     }
 
     returns.push(valueEnd / valueStart - 1);
@@ -343,12 +397,14 @@ function simulateSnp10Base(
     const cost = afterOpen * oneWayTurnover * costRate;
 
     let openToClose = 0;
+    let weightedDivRet = 0;
     for (const [s, w] of targetWeights) {
       const bars = symbolMap.get(s)!.bars;
       openToClose += w * (bars[i].close / bars[i].open - 1);
+      weightedDivRet += w * dailyDividendYield(CONSTITUENT_DIVIDEND_PROXY_YIELD[s] ?? BENCHMARK_DIVIDEND_PROXY_YIELD);
     }
 
-    const valueEnd = Math.max(0.0001, (afterOpen - cost) * (1 + openToClose));
+    const valueEnd = Math.max(0.0001, (afterOpen - cost) * (1 + openToClose + weightedDivRet));
 
     if (oneWayTurnover > 0.0001) {
       executedRebalances.push({
@@ -422,9 +478,21 @@ async function main() {
 
   const symbolToStooq = Object.fromEntries(CONSTITUENTS.map((c) => [c.symbol, c.stooq]));
 
+  const dividendModel: DividendModel = {
+    mode: provider.benchmarkTotalReturnAvailableFromSource ? "actual" : "proxy",
+    source: provider.benchmarkTotalReturnAvailableFromSource
+      ? `benchmark from ${provider.benchmarkSymbolUsed}; constituents proxy yields`
+      : "modeled annual dividend yields (benchmark + constituents)",
+    benchmarkAnnualYield: BENCHMARK_DIVIDEND_PROXY_YIELD,
+    constituentAnnualYieldBySymbol: CONSTITUENT_DIVIDEND_PROXY_YIELD,
+    dailyYieldConvention: "annualYield/252 simple daily carry",
+  };
+
   const assumptions = [
     "Daily OHLC for benchmark and all strategy symbols is fetched from Stooq CSV endpoint (no auth).",
-    "Benchmark uses ^SPX (S&P 500 index) close series, normalized to 100 at each timeframe start.",
+    "Return mode is total return (TR): daily return = price return + dividend return (or source-provided TR where available).",
+    "Benchmark prefers Stooq TR symbols (^spxt, ^spxtr, ^sp500tr); if unavailable, falls back to ^SPX plus modeled dividend proxy yield.",
+    "SNP1/SNP10 apply modeled dividend yield by symbol to produce strategy total-return streams.",
     "Universe is a fixed 10-stock long-history proxy set, not full historical S&P 500 constituents.",
     "SNP1/SNP10 ranking uses proxy market cap = daily close * static shares outstanding constants in generator.",
     "Shares outstanding are modern approximations and are not reconstructed point-in-time historically.",
@@ -444,11 +512,17 @@ async function main() {
       assumptions,
       tradingDaysPerYear: TRADING_DAYS,
       years,
+      returnMode: "total-return" as const,
       execution: BASE_EXECUTION,
+      dividendModel,
       dataSource: {
         provider: "stooq",
-        benchmarkSymbol: BENCHMARK.stooq,
-        benchmarkProxyLabel: "S&P 500 index proxy (^SPX)",
+        benchmarkSymbol: provider.benchmarkSymbolUsed,
+        benchmarkProxyLabel: provider.benchmarkTotalReturnAvailableFromSource
+          ? `S&P 500 total-return proxy (${provider.benchmarkSymbolUsed})`
+          : "S&P 500 price proxy (^SPX) + modeled dividend carry",
+        benchmarkTotalReturnAvailableFromSource: provider.benchmarkTotalReturnAvailableFromSource,
+        benchmarkTotalReturnSymbolTried: BENCHMARK_TR_CANDIDATES,
         constituentSymbols: CONSTITUENTS.map((c) => c.symbol),
         symbolToStooq,
         dateRange: provider.dateRangeFor(years),
@@ -486,11 +560,17 @@ async function main() {
       formulaVersion: FORMULA_VERSION,
       commitSha,
       assumptions,
+      returnMode: "total-return",
       execution: BASE_EXECUTION,
+      dividendModel,
       dataSource: {
         provider: "stooq",
-        benchmarkSymbol: BENCHMARK.stooq,
-        benchmarkProxyLabel: "S&P 500 index proxy (^SPX)",
+        benchmarkSymbol: provider.benchmarkSymbolUsed,
+        benchmarkProxyLabel: provider.benchmarkTotalReturnAvailableFromSource
+          ? `S&P 500 total-return proxy (${provider.benchmarkSymbolUsed})`
+          : "S&P 500 price proxy (^SPX) + modeled dividend carry",
+        benchmarkTotalReturnAvailableFromSource: provider.benchmarkTotalReturnAvailableFromSource,
+        benchmarkTotalReturnSymbolTried: BENCHMARK_TR_CANDIDATES,
         constituentSymbols: CONSTITUENTS.map((c) => c.symbol),
         symbolToStooq,
         rankingMethod: "close * static sharesOutstanding proxy",
