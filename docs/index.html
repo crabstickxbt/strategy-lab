@@ -61,7 +61,7 @@
   const d = data.series.dates;
   const sp = { values: data.series.sp500, stats: data.stats.sp500 };
   const sn = { values: data.series.snp1, stats: data.stats.snp1 };
-  document.getElementById('range').textContent = `${d[0]} → ${d[d.length-1]} · formula ${data.metadata?.formulaVersion || 'v1'}`;
+  document.getElementById('range').textContent = `${d[0]} → ${d[d.length-1]} · formula ${data.metadata?.formulaVersion || 'v1'} · log scale`;
 
   const maxPoints = 900;
   const step = Math.max(1, Math.ceil(d.length / maxPoints));
@@ -70,9 +70,15 @@
   const snChart = sn.values.filter((_, i) => i % step === 0 || i === sn.values.length - 1);
 
   const all = [...spChart, ...snChart];
-  const min = Math.min(...all), max = Math.max(...all), W=900,H=320;
+  const W=900,H=320;
+  // Use log scale so both long-horizon curves remain visible on the same chart.
+  const safe = all.map(v => Math.max(v, 0.0001));
+  const minLog = Math.log10(Math.min(...safe));
+  const maxLog = Math.log10(Math.max(...safe));
   const path=(arr)=>arr.map((v,i)=>{
-    const x=i/(arr.length-1)*W; const y=H-((v-min)/(max-min||1))*H; return `${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`;
+    const x=i/(arr.length-1)*W;
+    const y=H-((Math.log10(Math.max(v,0.0001))-minLog)/(maxLog-minLog||1))*H;
+    return `${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(' ');
   const svg=document.getElementById('chart');
   svg.innerHTML=`<path d="${path(spChart)}" fill="none" stroke="#7cb4ff" stroke-width="2.2"/>`+
