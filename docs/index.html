@@ -54,12 +54,12 @@
     `<a class="btn" href="./data/${slug}.csv">Download CSV</a>`;
 
   const data = await fetch(`./data/${slug}.json`).then(r=>r.json());
-  document.getElementById('title').textContent = data.title || slug;
-  document.getElementById('desc').textContent = data.description || '';
+  document.getElementById('title').textContent = slug;
+  document.getElementById('desc').textContent = `${scenario} execution model for daily Top1 S&P500 rotation.`;
 
-  const sp = data.series.find(x=>x.label.toLowerCase().includes('sp500'));
-  const sn = data.series.find(x=>x.label.toLowerCase().includes('snp1'));
-  const d = sp.dates;
+  const d = data.series.dates;
+  const sp = { values: data.series.sp500, stats: data.stats.sp500 };
+  const sn = { values: data.series.snp1, stats: data.stats.snp1 };
   document.getElementById('range').textContent = `${d[0]} → ${d[d.length-1]} · formula ${data.metadata?.formulaVersion || 'v1'}`;
 
   const all = [...sp.values, ...sn.values];
