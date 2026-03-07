@@ -6,6 +6,18 @@ import { fileURLToPath } from "node:url";
 type Ohlc = { open: number; high: number; low: number; close: number };
 type ConstituentSeries = { symbol: string; sharesOutstanding: number; bars: Ohlc[] };
 type StrategyStats = { cagr: number; annVol: number; maxDrawdown: number; sharpe: number };
+type StrategyName = "snp1" | "snp10";
+type ScenarioName = "base" | "optimistic" | "pessimistic";
+
+type ExecutionParams = {
+  signalLagDays: number;
+  executionVenue: string;
+  spreadBpsPerSide: number;
+  impactBpsPerSide: number;
+  totalCostBpsPerTurnover: number;
+  snp1LeaderAdvantageBps: number;
+  snp10BufferRanks: number;
+};
 
 type ScenarioPayload = {
   metadata: {
@@ -13,21 +25,24 @@ type ScenarioPayload = {
     formulaVersion: string;
     commitSha: string;
     assumptions: string[];
-    scenario: "optimistic" | "pessimistic";
+    strategy: StrategyName;
+    scenario: ScenarioName;
     tradingDaysPerYear: number;
     years: number;
+    execution: ExecutionParams;
   };
   series: {
     dates: string[];
     sp500: number[];
-    snp1: number[];
+    strategy: number[];
     sp500Returns: number[];
-    snp1Returns: number[];
+    strategyReturns: number[];
   };
-  top1ByDate: string[];
-  holdingByDate: string[];
-  executedSwaps: Array<{ date: string; from: string; to: string }>;
-  stats: { sp500: StrategyStats; snp1: StrategyStats };
+  diagnostics: {
+    holdings: string[] | string[][];
+    executedRebalances: Array<{ date: string; details: string }>;
+  };
+  stats: { sp500: StrategyStats; strategy: StrategyStats };
 };
 
 type MarketDataProvider = {
@@ -36,8 +51,18 @@ type MarketDataProvider = {
 
 const TRADING_DAYS = 252;
 const END_DATE = new Date("2026-03-07T00:00:00Z");
-const FORMULA_VERSION = "snp1-v2-timeframes";
+const FORMULA_VERSION = "snp1-snp10-v3-base-execution";
 const TIMEFRAMES = [5, 10, 25, 50] as const;
+
+const BASE_EXECUTION: ExecutionParams = {
+  signalLagDays: 1,
+  executionVenue: "next-day-open",
+  spreadBpsPerSide: 5,
+  impactBpsPerSide: 7,
+  totalCostBpsPerTurnover: 12,
+  snp1LeaderAdvantageBps: 35,
+  snp10BufferRanks: 2,
+};
 
 const CONSTITUENTS: Array<{ symbol: string; startPrice: number; sharesOutstanding: number; drift: number; vol: number }> = [
   { symbol: "AAPL", startPrice: 30, sharesOutstanding: 16_800_000_000, drift: 0.16, vol: 0.28 },
@@ -173,116 +198,214 @@ class MockMarketDataProvider implements MarketDataProvider {
   }
 }
 
-function top1ByMarketCap(constituents: ConstituentSeries[], dayIndex: number): string {
-  let topSymbol = constituents[0].symbol;
-  let topCap = -Infinity;
-  for (const c of constituents) {
-    const cap = c.bars[dayIndex].close * c.sharesOutstanding;
-    if (cap > topCap) {
-      topCap = cap;
-      topSymbol = c.symbol;
-    }
-  }
-  return topSymbol;
+function marketCaps(constituents: ConstituentSeries[], dayIndex: number): Array<{ symbol: string; cap: number }> {
+  return constituents
+    .map((c) => ({ symbol: c.symbol, cap: c.bars[dayIndex].close * c.sharesOutstanding }))
+    .sort((a, b) => b.cap - a.cap);
 }
 
 function averageOpenClose(bar: Ohlc): number {
   return (bar.open + bar.close) / 2;
 }
 
-function scenarioFromData(
+function simulateSnp1(
   providerData: ReturnType<MarketDataProvider["getData"]>,
-  scenario: "optimistic" | "pessimistic",
-  metadataBase: Omit<ScenarioPayload["metadata"], "scenario">
+  scenario: ScenarioName,
+  metadataBase: Omit<ScenarioPayload["metadata"], "scenario" | "strategy">
 ): ScenarioPayload {
   const { dates, constituents, benchmarkClose } = providerData;
   const symbolMap = new Map(constituents.map((c) => [c.symbol, c]));
-
-  const top1Symbols = dates.map((_, idx) => top1ByMarketCap(constituents, idx));
+  const rankings = dates.map((_, idx) => marketCaps(constituents, idx));
+  const top1Symbols = rankings.map((r) => r[0].symbol);
 
   const holdingByDate: string[] = new Array(dates.length);
-  const executedSwaps: Array<{ date: string; from: string; to: string }> = [];
+  const executedRebalances: Array<{ date: string; details: string }> = [];
 
   let holding = top1Symbols[0];
   holdingByDate[0] = holding;
   let pendingSwap: { from: string; to: string } | null = null;
 
-  const snp1Levels = [100];
-  const snp1Returns: number[] = [];
+  const levels = [100];
+  const returns: number[] = [0];
 
   for (let i = 1; i < dates.length; i += 1) {
-    const prevHolding = holding;
+    const valueStart = levels[levels.length - 1];
+    let valueEnd = valueStart;
 
     if (pendingSwap) {
       const oldSeries = symbolMap.get(pendingSwap.from)!;
       const newSeries = symbolMap.get(pendingSwap.to)!;
-
-      const valueStart = snp1Levels[snp1Levels.length - 1];
       const sharesOld = valueStart / oldSeries.bars[i - 1].close;
 
-      const sellPrice = scenario === "optimistic" ? averageOpenClose(oldSeries.bars[i]) : oldSeries.bars[i].low;
-      const buyPrice = scenario === "optimistic" ? averageOpenClose(newSeries.bars[i]) : newSeries.bars[i].high;
+      let sellPrice = oldSeries.bars[i].open;
+      let buyPrice = newSeries.bars[i].open;
+      let sellCost = 0;
+      let buyCost = 0;
 
-      const cash = sharesOld * sellPrice;
-      const sharesNew = cash / buyPrice;
-      const valueEnd = sharesNew * newSeries.bars[i].close;
+      if (scenario === "optimistic") {
+        sellPrice = averageOpenClose(oldSeries.bars[i]);
+        buyPrice = averageOpenClose(newSeries.bars[i]);
+      } else if (scenario === "pessimistic") {
+        sellPrice = oldSeries.bars[i].low;
+        buyPrice = newSeries.bars[i].high;
+      } else {
+        const sideCost = BASE_EXECUTION.totalCostBpsPerTurnover / 10_000;
+        sellCost = sideCost;
+        buyCost = sideCost;
+      }
 
-      snp1Returns.push(valueEnd / valueStart - 1);
-      snp1Levels.push(valueEnd);
+      const cash = sharesOld * sellPrice * (1 - sellCost);
+      const sharesNew = cash / (buyPrice * (1 + buyCost));
+      valueEnd = sharesNew * newSeries.bars[i].close;
       holding = pendingSwap.to;
-      executedSwaps.push({ date: dates[i], from: pendingSwap.from, to: pendingSwap.to });
+      executedRebalances.push({ date: dates[i], details: `${pendingSwap.from}->${pendingSwap.to}` });
       pendingSwap = null;
     } else {
       const holdSeries = symbolMap.get(holding)!;
-      const valueStart = snp1Levels[snp1Levels.length - 1];
-      const valueEnd = valueStart * (holdSeries.bars[i].close / holdSeries.bars[i - 1].close);
-      snp1Returns.push(valueEnd / valueStart - 1);
-      snp1Levels.push(valueEnd);
+      valueEnd = valueStart * (holdSeries.bars[i].close / holdSeries.bars[i - 1].close);
     }
 
-    const topChangeAtPrevDay = top1Symbols[i - 1] !== top1Symbols[i];
-    if (topChangeAtPrevDay) pendingSwap = { from: holding, to: top1Symbols[i] };
+    returns.push(valueEnd / valueStart - 1);
+    levels.push(valueEnd);
+
+    const prevTop = top1Symbols[i - 1];
+    const targetTop = top1Symbols[i];
+    if (scenario === "base") {
+      if (targetTop !== holding) {
+        const prevCaps = rankings[i - 1];
+        const topCap = prevCaps.find((x) => x.symbol === targetTop)!.cap;
+        const holdCap = prevCaps.find((x) => x.symbol === holding)!.cap;
+        const advantageBps = (topCap / holdCap - 1) * 10_000;
+        if (advantageBps >= BASE_EXECUTION.snp1LeaderAdvantageBps) {
+          pendingSwap = { from: holding, to: targetTop };
+        }
+      }
+    } else if (prevTop !== targetTop) {
+      pendingSwap = { from: holding, to: targetTop };
+    }
 
     holdingByDate[i] = holding;
-    if (!holdingByDate[i - 1]) holdingByDate[i - 1] = prevHolding;
   }
 
-  const sp500Levels = benchmarkClose;
-  const sp500Returns = sp500Levels.map((level, i) => (i === 0 ? level / 100 - 1 : level / sp500Levels[i - 1] - 1));
+  const sp500Returns = benchmarkClose.map((level, i) => (i === 0 ? 0 : level / benchmarkClose[i - 1] - 1));
 
   return {
-    metadata: { ...metadataBase, scenario },
-    series: {
-      dates,
-      sp500: sp500Levels,
-      snp1: snp1Levels,
-      sp500Returns,
-      snp1Returns: [snp1Levels[0] / 100 - 1, ...snp1Returns],
-    },
-    top1ByDate: top1Symbols,
-    holdingByDate,
-    executedSwaps,
+    metadata: { ...metadataBase, strategy: "snp1", scenario },
+    series: { dates, sp500: benchmarkClose, strategy: levels, sp500Returns, strategyReturns: returns },
+    diagnostics: { holdings: holdingByDate, executedRebalances },
     stats: {
-      sp500: computeStats(sp500Returns, [100, ...sp500Levels]),
-      snp1: computeStats([snp1Levels[0] / 100 - 1, ...snp1Returns], [100, ...snp1Levels]),
+      sp500: computeStats(sp500Returns, [100, ...benchmarkClose]),
+      strategy: computeStats(returns, [100, ...levels]),
+    },
+  };
+}
+
+function simulateSnp10Base(
+  providerData: ReturnType<MarketDataProvider["getData"]>,
+  metadataBase: Omit<ScenarioPayload["metadata"], "scenario" | "strategy">
+): ScenarioPayload {
+  const { dates, constituents, benchmarkClose } = providerData;
+  const symbolMap = new Map(constituents.map((c) => [c.symbol, c]));
+  const rankings = dates.map((_, idx) => marketCaps(constituents, idx));
+
+  const holdings: string[][] = new Array(dates.length).fill(null).map(() => []);
+  const executedRebalances: Array<{ date: string; details: string }> = [];
+
+  const firstTop10 = rankings[0].slice(0, 10).map((x) => x.symbol);
+  let currentSet = new Set(firstTop10);
+  let prevWeights = new Map<string, number>();
+  const firstCaps = rankings[0].filter((x) => currentSet.has(x.symbol));
+  const firstTotalCap = firstCaps.reduce((a, b) => a + b.cap, 0);
+  for (const p of firstCaps) prevWeights.set(p.symbol, p.cap / firstTotalCap);
+  holdings[0] = [...currentSet].sort();
+
+  const levels = [100];
+  const returns = [0];
+
+  for (let i = 1; i < dates.length; i += 1) {
+    const valueStart = levels[levels.length - 1];
+
+    const rankPrev = rankings[i - 1];
+    const rankMap = new Map(rankPrev.map((x, idx) => [x.symbol, idx + 1]));
+
+    const keep = [...currentSet].filter((s) => (rankMap.get(s) ?? 999) <= 10 + BASE_EXECUTION.snp10BufferRanks);
+    const candidates = rankPrev.map((x) => x.symbol).filter((s) => !keep.includes(s));
+    while (keep.length < 10) keep.push(candidates.shift()!);
+    const targetSet = new Set(keep.slice(0, 10));
+
+    const targetCaps = rankPrev.filter((x) => targetSet.has(x.symbol));
+    const totalCap = targetCaps.reduce((a, b) => a + b.cap, 0);
+    const targetWeights = new Map<string, number>();
+    for (const p of targetCaps) targetWeights.set(p.symbol, p.cap / totalCap);
+
+    const universe = new Set([...prevWeights.keys(), ...targetWeights.keys()]);
+    let closeToOpen = 0;
+    for (const s of universe) {
+      const w = prevWeights.get(s) ?? 0;
+      if (w === 0) continue;
+      const bars = symbolMap.get(s)!.bars;
+      closeToOpen += w * (bars[i].open / bars[i - 1].close - 1);
+    }
+
+    const afterOpen = valueStart * (1 + closeToOpen);
+
+    let sumAbsDelta = 0;
+    for (const s of universe) sumAbsDelta += Math.abs((targetWeights.get(s) ?? 0) - (prevWeights.get(s) ?? 0));
+    const oneWayTurnover = 0.5 * sumAbsDelta;
+    const costRate = BASE_EXECUTION.totalCostBpsPerTurnover / 10_000;
+    const cost = afterOpen * oneWayTurnover * costRate;
+
+    let openToClose = 0;
+    for (const [s, w] of targetWeights) {
+      const bars = symbolMap.get(s)!.bars;
+      openToClose += w * (bars[i].close / bars[i].open - 1);
+    }
+
+    const valueEnd = Math.max(0.0001, (afterOpen - cost) * (1 + openToClose));
+
+    if (oneWayTurnover > 0.0001) {
+      executedRebalances.push({
+        date: dates[i],
+        details: `turnover=${(oneWayTurnover * 100).toFixed(2)}% costBps=${BASE_EXECUTION.totalCostBpsPerTurnover}`,
+      });
+    }
+
+    returns.push(valueEnd / valueStart - 1);
+    levels.push(valueEnd);
+    currentSet = targetSet;
+    prevWeights = targetWeights;
+    holdings[i] = [...currentSet].sort();
+  }
+
+  const sp500Returns = benchmarkClose.map((level, i) => (i === 0 ? 0 : level / benchmarkClose[i - 1] - 1));
+
+  return {
+    metadata: { ...metadataBase, strategy: "snp10", scenario: "base" },
+    series: { dates, sp500: benchmarkClose, strategy: levels, sp500Returns, strategyReturns: returns },
+    diagnostics: { holdings, executedRebalances },
+    stats: {
+      sp500: computeStats(sp500Returns, [100, ...benchmarkClose]),
+      strategy: computeStats(returns, [100, ...levels]),
     },
   };
 }
 
 function toCsv(payload: ScenarioPayload): string {
-  const lines = ["date,sp500,snp1,sp500Return,snp1Return,top1Ticker,holdingTicker,swapExecuted"];
-  const swapDates = new Set(payload.executedSwaps.map((s) => s.date));
+  const lines = ["date,sp500,strategy,sp500Return,strategyReturn,holding,rebalanced"];
+  const rebalanceDates = new Set(payload.diagnostics.executedRebalances.map((s) => s.date));
 
   for (let i = 0; i < payload.series.dates.length; i += 1) {
+    const holding = Array.isArray(payload.diagnostics.holdings[i])
+      ? (payload.diagnostics.holdings[i] as string[]).join("|")
+      : (payload.diagnostics.holdings[i] as string);
     const row = [
       payload.series.dates[i],
       payload.series.sp500[i].toFixed(6),
-      payload.series.snp1[i].toFixed(6),
+      payload.series.strategy[i].toFixed(6),
       payload.series.sp500Returns[i].toFixed(10),
-      payload.series.snp1Returns[i].toFixed(10),
-      payload.top1ByDate[i],
-      payload.holdingByDate[i],
-      swapDates.has(payload.series.dates[i]) ? "1" : "0",
+      payload.series.strategyReturns[i].toFixed(10),
+      holding,
+      rebalanceDates.has(payload.series.dates[i]) ? "1" : "0",
     ];
     lines.push(row.join(","));
   }
@@ -309,15 +432,15 @@ function main() {
   const assumptions = [
     "Universe constrained to mock S&P500 constituents listed in script",
     "Trading calendar uses weekdays only and omits exchange holidays",
-    "Top1 selection uses close-price market cap each day",
-    "Swap after top1 change at day t executes at day t+1",
-    "Pessimistic execution uses sell@LOW and buy@HIGH on execution day",
-    "Optimistic execution uses average(open,close) for both legs",
+    "Signals formed from close-price market caps on day t and executed at day t+1 open",
+    "Base scenario applies explicit per-turnover execution costs and hysteresis to reduce churn",
+    "SNP1 base rotates only when leader exceeds incumbent by configured bps threshold",
+    "SNP10 base uses sticky rank buffer around top-10 edges before membership changes",
+    "Optimistic/Pessimistic SNP1 remain stress bounds using favorable/adverse fills",
     "Benchmark SP500 path is deterministic synthetic close series",
-    "Mock provider can be replaced by real provider via MarketDataProvider interface",
   ];
 
-  const artifacts: Array<{ scenario: string; timeframeYears: number; json: string; csv: string }> = [];
+  const artifacts: Array<{ strategy: StrategyName; scenario: ScenarioName; timeframeYears: number; json: string; csv: string }> = [];
 
   for (const years of TIMEFRAMES) {
     const provider = new MockMarketDataProvider(years);
@@ -329,16 +452,29 @@ function main() {
       assumptions,
       tradingDaysPerYear: TRADING_DAYS,
       years,
+      execution: BASE_EXECUTION,
     };
 
-    for (const scenario of ["optimistic", "pessimistic"] as const) {
-      const payload = scenarioFromData(marketData, scenario, metadataBase);
-      const base = `sp500_vs_snp1_${scenario}_${years}y`;
+    const payloads: ScenarioPayload[] = [
+      simulateSnp1(marketData, "base", metadataBase),
+      simulateSnp1(marketData, "optimistic", metadataBase),
+      simulateSnp1(marketData, "pessimistic", metadataBase),
+      simulateSnp10Base(marketData, metadataBase),
+    ];
+
+    for (const payload of payloads) {
+      const base = `sp500_vs_${payload.metadata.strategy}_${payload.metadata.scenario}_${years}y`;
       const jsonFile = `${base}.json`;
       const csvFile = `${base}.csv`;
       writeFileSync(path.join(outDir, jsonFile), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
       writeFileSync(path.join(outDir, csvFile), `${toCsv(payload)}\n`, "utf8");
-      artifacts.push({ scenario, timeframeYears: years, json: `/data/${jsonFile}`, csv: `/data/${csvFile}` });
+      artifacts.push({
+        strategy: payload.metadata.strategy,
+        scenario: payload.metadata.scenario,
+        timeframeYears: years,
+        json: `/data/${jsonFile}`,
+        csv: `/data/${csvFile}`,
+      });
     }
   }
 
@@ -348,9 +484,16 @@ function main() {
       formulaVersion: FORMULA_VERSION,
       commitSha,
       assumptions,
+      execution: BASE_EXECUTION,
       supportedTimeframesYears: [...TIMEFRAMES],
+      supportedStrategies: ["snp1", "snp10"],
+      supportedScenariosByStrategy: {
+        snp1: ["base", "optimistic", "pessimistic"],
+        snp10: ["base"],
+      },
       defaultTimeframeYears: 25,
-      defaultScenario: "optimistic",
+      defaultStrategy: "snp1",
+      defaultScenario: "base",
     },
     artifacts,
   };

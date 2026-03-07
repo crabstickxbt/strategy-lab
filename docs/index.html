@@ -3,25 +3,37 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Strategy Lab — SP500 vs SNP1</title>
+  <title>Strategy Lab — SP500 vs SNP Strategies</title>
   <style>
     body{font-family:Inter,system-ui,Arial,sans-serif;background:#0b1020;color:#eaf0ff;margin:0}
-    .wrap{max-width:1100px;margin:0 auto;padding:24px}
-    .card{background:#141b32;border:1px solid #22305f;border-radius:12px;padding:16px;margin:16px 0}
-    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    a.btn{padding:8px 12px;border-radius:8px;background:#22305f;color:#fff;text-decoration:none}
-    a.btn.active{background:#4a69c7}
+    .wrap{max-width:1100px;margin:0 auto;padding:18px}
+    .card{background:#141b32;border:1px solid #22305f;border-radius:12px;padding:14px;margin:14px 0}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+    .field{display:flex;flex-direction:column;gap:6px;min-width:140px}
+    select,a.btn{padding:8px 10px;border-radius:8px;border:1px solid #32467f;background:#1a254a;color:#fff;text-decoration:none}
     table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px solid #24315e;text-align:left}
     svg{width:100%;height:auto;background:#0f1730;border-radius:8px}
-    .sp{color:#7cb4ff}.sn{color:#ff916b}.muted{color:#9aa6cf}
+    .muted{color:#9aa6cf}
+    @media (max-width:640px){.wrap{padding:12px}.card{padding:12px}}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Strategy Lab</h1>
-    <p>Static GitHub Pages deployment. Universe: <b>S&P 500 only</b>. SNP1 holds daily Top-1 by market cap, with next-day execution assumptions.</p>
+    <p>Static GitHub Pages deployment. Compare SP500 with SNP1 (Top-1) and SNP10 (Top-10 cap-weighted) under multiple execution scenarios.</p>
 
-    <div class="card row" id="nav"></div>
+    <div class="card row">
+      <label class="field">Strategy
+        <select id="strategy"></select>
+      </label>
+      <label class="field">Scenario
+        <select id="scenario"></select>
+      </label>
+      <label class="field">Timeframe
+        <select id="timeframe"></select>
+      </label>
+      <a class="btn" id="csvLink" href="#">Download CSV</a>
+    </div>
 
     <div class="card">
       <h2 id="title">Scenario</h2>
@@ -33,7 +45,7 @@
     <div class="card">
       <h2>Stats</h2>
       <table>
-        <thead><tr><th>Metric</th><th>SP500</th><th>SNP1</th></tr></thead>
+        <thead><tr><th>Metric</th><th>SP500</th><th id="strategyHead">Strategy</th></tr></thead>
         <tbody id="stats"></tbody>
       </table>
     </div>
@@ -43,54 +55,113 @@
 (async function(){
   const manifest = await fetch('./data/index.json').then(r=>r.json());
   const params = new URLSearchParams(location.search);
-  const scenario = params.get('s') || (manifest?.metadata?.defaultScenario || 'optimistic');
-  const timeframe = Number(params.get('t') || manifest?.metadata?.defaultTimeframeYears || 25);
-  const slug = `sp500_vs_snp1_${scenario}_${timeframe}y`;
 
-  const nav = document.getElementById('nav');
-  const scenarios = [['optimistic','Optimistic execution'],['pessimistic','Pessimistic execution']];
-  const frames = (manifest?.metadata?.supportedTimeframesYears || [5,10,25,50]);
-  const sBtns = scenarios.map(([k,l])=>`<a class="btn ${k===scenario?'active':''}" href="?s=${k}&t=${timeframe}">${l}</a>`).join('');
-  const tBtns = frames.map((y)=>`<a class="btn ${Number(y)===timeframe?'active':''}" href="?s=${scenario}&t=${y}">${y}Y</a>`).join('');
-  nav.innerHTML = sBtns + tBtns + `<a class="btn" href="./data/${slug}.csv">Download CSV</a>`;
+  const defaults = manifest?.metadata || {};
+  const strategies = defaults.supportedStrategies || ['snp1','snp10'];
+  const frames = defaults.supportedTimeframesYears || [5,10,25,50];
+  const scenarioMap = defaults.supportedScenariosByStrategy || {snp1:['base','optimistic','pessimistic'],snp10:['base']};
 
-  const data = await fetch(`./data/${slug}.json`).then(r=>r.json());
-  document.getElementById('title').textContent = `${scenario} · ${timeframe}Y`;
-  document.getElementById('desc').textContent = `${scenario} execution model for daily Top1 S&P500 rotation.`;
+  const strategyEl = document.getElementById('strategy');
+  const scenarioEl = document.getElementById('scenario');
+  const timeframeEl = document.getElementById('timeframe');
+  const csvLink = document.getElementById('csvLink');
 
-  const d = data.series.dates;
-  const sp = { values: data.series.sp500, stats: data.stats.sp500 };
-  const sn = { values: data.series.snp1, stats: data.stats.snp1 };
-  document.getElementById('range').textContent = `${d[0]} → ${d[d.length-1]} · formula ${data.metadata?.formulaVersion || 'v1'} · log scale`;
+  let strategy = params.get('st') || defaults.defaultStrategy || 'snp1';
+  if (!strategies.includes(strategy)) strategy = 'snp1';
+  let timeframe = Number(params.get('t') || defaults.defaultTimeframeYears || 25);
+  if (!frames.includes(timeframe)) timeframe = 25;
 
-  const maxPoints = 900;
-  const step = Math.max(1, Math.ceil(d.length / maxPoints));
-  const dChart = d.filter((_, i) => i % step === 0 || i === d.length - 1);
-  const spChart = sp.values.filter((_, i) => i % step === 0 || i === sp.values.length - 1);
-  const snChart = sn.values.filter((_, i) => i % step === 0 || i === sn.values.length - 1);
+  function scenarioLabel(v){
+    if(v==='base') return 'Base (realistic)';
+    if(v==='optimistic') return 'Optimistic';
+    if(v==='pessimistic') return 'Pessimistic';
+    return v;
+  }
+  function strategyLabel(v){ return v.toUpperCase(); }
 
-  const all = [...spChart, ...snChart];
-  const W=900,H=320;
-  // Use log scale so both long-horizon curves remain visible on the same chart.
-  const safe = all.map(v => Math.max(v, 0.0001));
-  const minLog = Math.log10(Math.min(...safe));
-  const maxLog = Math.log10(Math.max(...safe));
-  const path=(arr)=>arr.map((v,i)=>{
-    const x=i/(arr.length-1)*W;
-    const y=H-((Math.log10(Math.max(v,0.0001))-minLog)/(maxLog-minLog||1))*H;
-    return `${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`;
-  }).join(' ');
-  const svg=document.getElementById('chart');
-  svg.innerHTML=`<path d="${path(spChart)}" fill="none" stroke="#7cb4ff" stroke-width="2.2"/>`+
-                `<path d="${path(snChart)}" fill="none" stroke="#ff916b" stroke-width="2.2"/>`;
+  strategyEl.innerHTML = strategies.map(s=>`<option value="${s}">${strategyLabel(s)}</option>`).join('');
+  strategyEl.value = strategy;
 
-  const pct=n=>`${(n*100).toFixed(2)}%`;
-  const s1=sp.stats,s2=sn.stats;
-  document.getElementById('stats').innerHTML = `
-    <tr><td>CAGR</td><td>${pct(s1.cagr)}</td><td>${pct(s2.cagr)}</td></tr>
-    <tr><td>Annual Volatility</td><td>${pct(s1.annVol)}</td><td>${pct(s2.annVol)}</td></tr>
-    <tr><td>Max Drawdown</td><td>${pct(s1.maxDrawdown)}</td><td>${pct(s2.maxDrawdown)}</td></tr>
-    <tr><td>Sharpe (rf=0)</td><td>${s1.sharpe.toFixed(2)}</td><td>${s2.sharpe.toFixed(2)}</td></tr>`;
+  timeframeEl.innerHTML = frames.map(y=>`<option value="${y}">${y}Y</option>`).join('');
+  timeframeEl.value = String(timeframe);
+
+  function populateScenario(){
+    const available = scenarioMap[strategy] || ['base'];
+    let scenario = params.get('s') || defaults.defaultScenario || 'base';
+    if(!available.includes(scenario)) scenario = available[0];
+    scenarioEl.innerHTML = available.map(s=>`<option value="${s}">${scenarioLabel(s)}</option>`).join('');
+    scenarioEl.value = scenario;
+    return scenario;
+  }
+
+  function pushUrl(st, sc, t){
+    const p = new URLSearchParams({st, s: sc, t: String(t)});
+    history.replaceState(null, '', `?${p.toString()}`);
+  }
+
+  async function render(){
+    strategy = strategyEl.value;
+    timeframe = Number(timeframeEl.value);
+    const scenario = scenarioEl.value;
+
+    const artifact = (manifest.artifacts || []).find(a =>
+      a.strategy===strategy && a.scenario===scenario && Number(a.timeframeYears)===timeframe
+    );
+    if(!artifact) return;
+
+    pushUrl(strategy, scenario, timeframe);
+    csvLink.href = `.${artifact.csv}`;
+
+    const data = await fetch(`.${artifact.json}`).then(r=>r.json());
+    document.getElementById('title').textContent = `${strategy.toUpperCase()} · ${scenarioLabel(scenario)} · ${timeframe}Y`;
+    document.getElementById('desc').textContent = `Execution: ${data.metadata?.execution?.executionVenue || 'n/a'} | cost=${data.metadata?.execution?.totalCostBpsPerTurnover ?? 0} bps per 1x turnover.`;
+    document.getElementById('strategyHead').textContent = strategy.toUpperCase();
+
+    const d = data.series.dates;
+    const sp = { values: data.series.sp500, stats: data.stats.sp500 };
+    const st = { values: data.series.strategy, stats: data.stats.strategy };
+    document.getElementById('range').textContent = `${d[0]} → ${d[d.length-1]} · formula ${data.metadata?.formulaVersion || 'v1'} · log scale`;
+
+    const maxPoints = 900;
+    const step = Math.max(1, Math.ceil(d.length / maxPoints));
+    const spChart = sp.values.filter((_, i) => i % step === 0 || i === sp.values.length - 1);
+    const stChart = st.values.filter((_, i) => i % step === 0 || i === st.values.length - 1);
+
+    const all = [...spChart, ...stChart];
+    const W=900,H=320;
+    const safe = all.map(v => Math.max(v, 0.0001));
+    const minLog = Math.log10(Math.min(...safe));
+    const maxLog = Math.log10(Math.max(...safe));
+    const path=(arr)=>arr.map((v,i)=>{
+      const x=i/(arr.length-1)*W;
+      const y=H-((Math.log10(Math.max(v,0.0001))-minLog)/(maxLog-minLog||1))*H;
+      return `${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(' ');
+    const svg=document.getElementById('chart');
+    svg.innerHTML=`<path d="${path(spChart)}" fill="none" stroke="#7cb4ff" stroke-width="2.2"/>`+
+                  `<path d="${path(stChart)}" fill="none" stroke="#ff916b" stroke-width="2.2"/>`;
+
+    const pct=n=>`${(n*100).toFixed(2)}%`;
+    const s1=sp.stats,s2=st.stats;
+    document.getElementById('stats').innerHTML = `
+      <tr><td>CAGR</td><td>${pct(s1.cagr)}</td><td>${pct(s2.cagr)}</td></tr>
+      <tr><td>Annual Volatility</td><td>${pct(s1.annVol)}</td><td>${pct(s2.annVol)}</td></tr>
+      <tr><td>Max Drawdown</td><td>${pct(s1.maxDrawdown)}</td><td>${pct(s2.maxDrawdown)}</td></tr>
+      <tr><td>Sharpe (rf=0)</td><td>${s1.sharpe.toFixed(2)}</td><td>${s2.sharpe.toFixed(2)}</td></tr>`;
+  }
+
+  let scenario = populateScenario();
+  pushUrl(strategy, scenario, timeframe);
+
+  strategyEl.addEventListener('change', ()=>{
+    strategy = strategyEl.value;
+    scenario = populateScenario();
+    render();
+  });
+  scenarioEl.addEventListener('change', render);
+  timeframeEl.addEventListener('change', render);
+
+  await render();
 })();
 </script>
 </body>
