@@ -35,9 +35,9 @@ type MarketDataProvider = {
 };
 
 const TRADING_DAYS = 252;
-const START_DATE = new Date("2000-01-03T00:00:00Z");
+const END_DATE = new Date("2026-03-07T00:00:00Z");
 const FORMULA_VERSION = "snp1-v2-timeframes";
-const TIMEFRAMES = [5, 10, 25] as const;
+const TIMEFRAMES = [5, 10, 25, 50] as const;
 
 const CONSTITUENTS: Array<{ symbol: string; startPrice: number; sharesOutstanding: number; drift: number; vol: number }> = [
   { symbol: "AAPL", startPrice: 30, sharesOutstanding: 16_800_000_000, drift: 0.16, vol: 0.28 },
@@ -52,15 +52,15 @@ const CONSTITUENTS: Array<{ symbol: string; startPrice: number; sharesOutstandin
   { symbol: "V", startPrice: 35, sharesOutstanding: 2_100_000_000, drift: 0.11, vol: 0.22 },
 ];
 
-function businessDays(start: Date, count: number): string[] {
+function businessDaysEndingAt(end: Date, count: number): string[] {
   const out: string[] = [];
-  const cursor = new Date(start);
+  const cursor = new Date(end);
   while (out.length < count) {
     const day = cursor.getUTCDay();
     if (day >= 1 && day <= 5) out.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
-  return out;
+  return out.reverse();
 }
 
 function hash64(stream: string, idx: number, salt: number): bigint {
@@ -118,7 +118,7 @@ class MockMarketDataProvider implements MarketDataProvider {
 
   getData() {
     const totalDays = TRADING_DAYS * this.years;
-    const dates = businessDays(START_DATE, totalDays);
+    const dates = businessDaysEndingAt(END_DATE, totalDays);
     const constituents = CONSTITUENTS.map((c) => ({
       symbol: c.symbol,
       sharesOutstanding: c.sharesOutstanding,

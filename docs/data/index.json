@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "generatedAt": "2026-03-07T16:15:59.942Z",
+    "generatedAt": "2026-03-07T16:22:20.389Z",
     "formulaVersion": "snp1-v2-timeframes",
-    "commitSha": "3be5c33",
+    "commitSha": "35c0454",
     "assumptions": [
       "Universe constrained to mock S&P500 constituents listed in script",
       "Trading calendar uses weekdays only and omits exchange holidays",
@@ -16,7 +16,8 @@
     "supportedTimeframesYears": [
       5,
       10,
-      25
+      25,
+      50
     ],
     "defaultTimeframeYears": 25,
     "defaultScenario": "optimistic"
@@ -57,6 +58,18 @@
       "timeframeYears": 25,
       "json": "/data/sp500_vs_snp1_pessimistic_25y.json",
       "csv": "/data/sp500_vs_snp1_pessimistic_25y.csv"
+    },
+    {
+      "scenario": "optimistic",
+      "timeframeYears": 50,
+      "json": "/data/sp500_vs_snp1_optimistic_50y.json",
+      "csv": "/data/sp500_vs_snp1_optimistic_50y.csv"
+    },
+    {
+      "scenario": "pessimistic",
+      "timeframeYears": 50,
+      "json": "/data/sp500_vs_snp1_pessimistic_50y.json",
+      "csv": "/data/sp500_vs_snp1_pessimistic_50y.csv"
     }
   ]
 }

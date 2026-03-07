@@ -49,7 +49,7 @@
 
   const nav = document.getElementById('nav');
   const scenarios = [['optimistic','Optimistic execution'],['pessimistic','Pessimistic execution']];
-  const frames = (manifest?.metadata?.supportedTimeframesYears || [5,10,25]);
+  const frames = (manifest?.metadata?.supportedTimeframesYears || [5,10,25,50]);
   const sBtns = scenarios.map(([k,l])=>`<a class="btn ${k===scenario?'active':''}" href="?s=${k}&t=${timeframe}">${l}</a>`).join('');
   const tBtns = frames.map((y)=>`<a class="btn ${Number(y)===timeframe?'active':''}" href="?s=${scenario}&t=${y}">${y}Y</a>`).join('');
   nav.innerHTML = sBtns + tBtns + `<a class="btn" href="./data/${slug}.csv">Download CSV</a>`;
@@ -63,14 +63,20 @@
   const sn = { values: data.series.snp1, stats: data.stats.snp1 };
   document.getElementById('range').textContent = `${d[0]} → ${d[d.length-1]} · formula ${data.metadata?.formulaVersion || 'v1'}`;
 
-  const all = [...sp.values, ...sn.values];
+  const maxPoints = 900;
+  const step = Math.max(1, Math.ceil(d.length / maxPoints));
+  const dChart = d.filter((_, i) => i % step === 0 || i === d.length - 1);
+  const spChart = sp.values.filter((_, i) => i % step === 0 || i === sp.values.length - 1);
+  const snChart = sn.values.filter((_, i) => i % step === 0 || i === sn.values.length - 1);
+
+  const all = [...spChart, ...snChart];
   const min = Math.min(...all), max = Math.max(...all), W=900,H=320;
   const path=(arr)=>arr.map((v,i)=>{
     const x=i/(arr.length-1)*W; const y=H-((v-min)/(max-min||1))*H; return `${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(' ');
   const svg=document.getElementById('chart');
-  svg.innerHTML=`<path d="${path(sp.values)}" fill="none" stroke="#7cb4ff" stroke-width="2.2"/>`+
-                `<path d="${path(sn.values)}" fill="none" stroke="#ff916b" stroke-width="2.2"/>`;
+  svg.innerHTML=`<path d="${path(spChart)}" fill="none" stroke="#7cb4ff" stroke-width="2.2"/>`+
+                `<path d="${path(snChart)}" fill="none" stroke="#ff916b" stroke-width="2.2"/>`;
 
   const pct=n=>`${(n*100).toFixed(2)}%`;
   const s1=sp.stats,s2=sn.stats;
