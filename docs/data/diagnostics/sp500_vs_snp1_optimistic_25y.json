@@ -1,0 +1,15 @@
+{
+  "artifact": "sp500_vs_snp1_optimistic_25y",
+  "strategy": "snp1",
+  "scenario": "optimistic",
+  "years": 25,
+  "diagnostics": {
+    "swapCount": 96,
+    "averageTurnover": 1,
+    "maxDailyMove": 0.26263109005931184,
+    "minLevel": 1.4754294280642049,
+    "maxLevel": 124.60318596230086,
+    "weightSumMin": 1,
+    "weightSumMax": 1
+  }
+}

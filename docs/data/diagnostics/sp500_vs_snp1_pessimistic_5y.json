@@ -1,0 +1,15 @@
+{
+  "artifact": "sp500_vs_snp1_pessimistic_5y",
+  "strategy": "snp1",
+  "scenario": "pessimistic",
+  "years": 5,
+  "diagnostics": {
+    "swapCount": 0,
+    "averageTurnover": 0,
+    "maxDailyMove": 0.11242553810958267,
+    "minLevel": 87.4423743054263,
+    "maxLevel": 236.46134433622595,
+    "weightSumMin": 1,
+    "weightSumMax": 1
+  }
+}

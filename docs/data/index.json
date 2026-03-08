@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "generatedAt": "2026-03-08T08:55:08.274Z",
-    "formulaVersion": "pit-membership-public-noauth-v3",
-    "commitSha": "03b0023",
+    "generatedAt": "2026-03-08T13:11:17.747Z",
+    "formulaVersion": "pit-membership-public-noauth-v4",
+    "commitSha": "4e658bb",
     "supportedTimeframesYears": [
       5,
       10,
@@ -33,112 +33,128 @@
       "scenario": "base",
       "timeframeYears": 5,
       "json": "/data/sp500_vs_snp1_base_5y.json",
-      "csv": "/data/sp500_vs_snp1_base_5y.csv"
+      "csv": "/data/sp500_vs_snp1_base_5y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_base_5y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "optimistic",
       "timeframeYears": 5,
       "json": "/data/sp500_vs_snp1_optimistic_5y.json",
-      "csv": "/data/sp500_vs_snp1_optimistic_5y.csv"
+      "csv": "/data/sp500_vs_snp1_optimistic_5y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_optimistic_5y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "pessimistic",
       "timeframeYears": 5,
       "json": "/data/sp500_vs_snp1_pessimistic_5y.json",
-      "csv": "/data/sp500_vs_snp1_pessimistic_5y.csv"
+      "csv": "/data/sp500_vs_snp1_pessimistic_5y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_pessimistic_5y.json"
     },
     {
       "strategy": "snp10",
       "scenario": "base",
       "timeframeYears": 5,
       "json": "/data/sp500_vs_snp10_base_5y.json",
-      "csv": "/data/sp500_vs_snp10_base_5y.csv"
+      "csv": "/data/sp500_vs_snp10_base_5y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp10_base_5y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "base",
       "timeframeYears": 10,
       "json": "/data/sp500_vs_snp1_base_10y.json",
-      "csv": "/data/sp500_vs_snp1_base_10y.csv"
+      "csv": "/data/sp500_vs_snp1_base_10y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_base_10y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "optimistic",
       "timeframeYears": 10,
       "json": "/data/sp500_vs_snp1_optimistic_10y.json",
-      "csv": "/data/sp500_vs_snp1_optimistic_10y.csv"
+      "csv": "/data/sp500_vs_snp1_optimistic_10y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_optimistic_10y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "pessimistic",
       "timeframeYears": 10,
       "json": "/data/sp500_vs_snp1_pessimistic_10y.json",
-      "csv": "/data/sp500_vs_snp1_pessimistic_10y.csv"
+      "csv": "/data/sp500_vs_snp1_pessimistic_10y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_pessimistic_10y.json"
     },
     {
       "strategy": "snp10",
       "scenario": "base",
       "timeframeYears": 10,
       "json": "/data/sp500_vs_snp10_base_10y.json",
-      "csv": "/data/sp500_vs_snp10_base_10y.csv"
+      "csv": "/data/sp500_vs_snp10_base_10y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp10_base_10y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "base",
       "timeframeYears": 25,
       "json": "/data/sp500_vs_snp1_base_25y.json",
-      "csv": "/data/sp500_vs_snp1_base_25y.csv"
+      "csv": "/data/sp500_vs_snp1_base_25y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_base_25y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "optimistic",
       "timeframeYears": 25,
       "json": "/data/sp500_vs_snp1_optimistic_25y.json",
-      "csv": "/data/sp500_vs_snp1_optimistic_25y.csv"
+      "csv": "/data/sp500_vs_snp1_optimistic_25y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_optimistic_25y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "pessimistic",
       "timeframeYears": 25,
       "json": "/data/sp500_vs_snp1_pessimistic_25y.json",
-      "csv": "/data/sp500_vs_snp1_pessimistic_25y.csv"
+      "csv": "/data/sp500_vs_snp1_pessimistic_25y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_pessimistic_25y.json"
     },
     {
       "strategy": "snp10",
       "scenario": "base",
       "timeframeYears": 25,
       "json": "/data/sp500_vs_snp10_base_25y.json",
-      "csv": "/data/sp500_vs_snp10_base_25y.csv"
+      "csv": "/data/sp500_vs_snp10_base_25y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp10_base_25y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "base",
       "timeframeYears": 50,
       "json": "/data/sp500_vs_snp1_base_50y.json",
-      "csv": "/data/sp500_vs_snp1_base_50y.csv"
+      "csv": "/data/sp500_vs_snp1_base_50y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_base_50y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "optimistic",
       "timeframeYears": 50,
       "json": "/data/sp500_vs_snp1_optimistic_50y.json",
-      "csv": "/data/sp500_vs_snp1_optimistic_50y.csv"
+      "csv": "/data/sp500_vs_snp1_optimistic_50y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_optimistic_50y.json"
     },
     {
       "strategy": "snp1",
       "scenario": "pessimistic",
       "timeframeYears": 50,
       "json": "/data/sp500_vs_snp1_pessimistic_50y.json",
-      "csv": "/data/sp500_vs_snp1_pessimistic_50y.csv"
+      "csv": "/data/sp500_vs_snp1_pessimistic_50y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp1_pessimistic_50y.json"
     },
     {
       "strategy": "snp10",
       "scenario": "base",
       "timeframeYears": 50,
       "json": "/data/sp500_vs_snp10_base_50y.json",
-      "csv": "/data/sp500_vs_snp10_base_50y.csv"
+      "csv": "/data/sp500_vs_snp10_base_50y.csv",
+      "diagnostics": "/data/diagnostics/sp500_vs_snp10_base_50y.json"
     }
   ]
 }

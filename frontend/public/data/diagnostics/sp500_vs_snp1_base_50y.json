@@ -1,0 +1,15 @@
+{
+  "artifact": "sp500_vs_snp1_base_50y",
+  "strategy": "snp1",
+  "scenario": "base",
+  "years": 50,
+  "diagnostics": {
+    "swapCount": 98,
+    "averageTurnover": 1,
+    "maxDailyMove": 0.7520003326821405,
+    "minLevel": 1.9913678563546071,
+    "maxLevel": 521.176276370728,
+    "weightSumMin": 1,
+    "weightSumMax": 1
+  }
+}
