@@ -1,60 +1,48 @@
-# Strategy Lab (SP500 vs SNP1/SNP10) — Total Return Mode
+# Strategy Lab (SP500 vs SNP1/SNP10) — PIT-style Historical Pipeline
 
 Static Strategy Lab deployment with precomputed artifacts in `docs/data` and selector-based UI in `docs/index.html`.
 
-## Data source
+## What was upgraded
 
-The pipeline uses **real daily OHLC bars** from Stooq CSV (no-auth):
+- Replaced fixed 10-stock proxy universe with **point-in-time-like S&P 500 membership by date**.
+- SNP1/SNP10 now rank within daily historical constituent sets (PIT-like), not a static basket.
+- Kept existing website selectors/UX and artifact naming intact.
+- Added explicit provenance + caveats + confidence metadata in JSON outputs.
 
-- Benchmark price proxy: `^SPX`
-- Preferred benchmark TR symbols attempted first: `^spxt`, `^spxtr`, `^sp500tr`
-- Strategy symbols (fixed long-history proxy universe): `XOM, IBM, GE, KO, PG, JNJ, CVX, MMM, CAT, MRK`
-- Symbol feed map is encoded in JSON artifacts under `metadata.dataSource.symbolToStooq`
+## Public no-auth data sources used
 
-## Total Return (TR) methodology
+1. **Historical S&P 500 membership (daily snapshots, 1996→present)**  
+   `https://raw.githubusercontent.com/hanshof/sp500_constituents/main/sp_500_historical_components.csv`
+2. **Daily OHLC market data (Stooq CSV endpoint)**  
+   `https://stooq.com/q/d/l/?s=<symbol>&i=d`
+3. **Latest shares outstanding proxy (Yahoo quoteSummary, no key)**  
+   `https://query1.finance.yahoo.com/v10/finance/quoteSummary/<symbol>?modules=defaultKeyStatistics,price,summaryDetail`
 
-Daily total return is computed as:
+## Method summary
 
-`TR_daily = price_return_daily + dividend_return_daily`
+- Build PIT universe from historical membership file by date.
+- Normalize ticker -> Stooq symbol with dot/dash fallbacks.
+- Fetch benchmark and constituent OHLC.
+- Rank by cap proxy using `close * latest_shares_outstanding`; if shares unavailable, fallback to close-only weighting/ranking.
+- Compute:
+  - SNP1 (base/optimistic/pessimistic execution variants)
+  - SNP10 (base)
+  - benchmark S&P500 TR proxy (prefer Stooq TR symbols, else ^SPX + dividend carry proxy)
+- Generate 5/10/25/50 selector artifacts ending on latest available date.
 
-### Benchmark (SP500)
+## Important caveats
 
-1. Try Stooq benchmark TR proxies (`^spxt`, `^spxtr`, `^sp500tr`)
-2. If unavailable, use `^SPX` price return plus modeled dividend carry
+- Membership source covers **1996-present**, so requested 50Y uses maximum available history (ends latest date).
+- True historical shares outstanding is not fully available no-auth; cap ranking uses latest shares where available.
+- Delisted/legacy symbols often fallback to price-only weighting, reducing market-cap fidelity.
+- Strategy constituent dividends are not fully reconstructed PIT in this free-source pipeline.
 
-Current implementation records which path was used in:
-- `metadata.dataSource.benchmarkTotalReturnAvailableFromSource`
-- `metadata.dataSource.benchmarkSymbol`
-- `metadata.dividendModel`
+## Confidence (historical accuracy)
 
-### Strategies (SNP1/SNP10)
-
-SNP1 and SNP10 are TR-aware by adding modeled dividend carry for held names each day:
-
-- SNP1: dividend carry of current held symbol added to daily return stream
-- SNP10: weighted dividend carry from target weights added to daily basket return
-
-Modeled annual dividend proxy yields used (if no source-provided TR):
-
-- Benchmark (`^SPX` fallback): **1.80%**
-- Constituents: XOM 3.40%, IBM 4.30%, GE 0.30%, KO 3.00%, PG 2.40%, JNJ 3.00%, CVX 4.10%, MMM 3.60%, CAT 1.80%, MRK 2.70%
-- Daily convention: `annualYield / 252`
-
-## Important realism assumptions (auditable)
-
-1. **Universe approximation:** fixed 10-stock long-history proxy universe (not full historical S&P 500 membership)
-2. **Ranking approximation for SNP1/SNP10:** market-cap proxy = `close * static sharesOutstanding`
-3. **Shares outstanding:** static modern approximations hardcoded in generator (not historical per-date reconstruction)
-4. **Dividend modeling:** where source TR is unavailable, dividend return is modeled via static annual yield proxies
-5. **Date alignment:** only dates present in benchmark and all strategy symbols are used (intersection)
-
-All assumptions are emitted in:
-- `frontend/public/data/index.json` (`metadata.assumptions` + `metadata.dividendModel`)
-- each scenario JSON (`metadata.assumptions` + `metadata.dataSource` + `metadata.dividendModel`)
-
-## Timeframes / selectors
-
-Artifacts are generated for **5Y / 10Y / 25Y / 50Y**; selector mapping is preserved via `docs/data/index.json`.
+- **Overall: MEDIUM**
+- High confidence: PIT membership + daily OHLC history.
+- Medium confidence: cap proxy with partial shares coverage.
+- Lower confidence: very long windows and dividend/composition details for old/delisted names.
 
 ## Generate + deploy data
 

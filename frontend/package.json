@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "ingest:data": "node --experimental-strip-types scripts/ingest-public-sources.ts",
+    "build:pit": "node --experimental-strip-types scripts/build-pit-membership.ts",
+    "test:pit": "node --experimental-strip-types scripts/test-pit-membership.ts",
     "generate:data": "node --experimental-strip-types scripts/generate-static-data.ts",
     "build": "next build",
     "start": "next start",
