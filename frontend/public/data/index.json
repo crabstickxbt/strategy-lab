@@ -1,85 +1,8 @@
 {
   "metadata": {
-    "generatedAt": "2026-03-07T17:21:13.271Z",
-    "formulaVersion": "real-stooq-tr-v1",
-    "commitSha": "9beef77",
-    "assumptions": [
-      "Daily OHLC for benchmark and all strategy symbols is fetched from Stooq CSV endpoint (no auth).",
-      "Return mode is total return (TR): daily return = price return + dividend return (or source-provided TR where available).",
-      "Benchmark prefers Stooq TR symbols (^spxt, ^spxtr, ^sp500tr); if unavailable, falls back to ^SPX plus modeled dividend proxy yield.",
-      "SNP1/SNP10 apply modeled dividend yield by symbol to produce strategy total-return streams.",
-      "Universe is a fixed 10-stock long-history proxy set, not full historical S&P 500 constituents.",
-      "SNP1/SNP10 ranking uses proxy market cap = daily close * static shares outstanding constants in generator.",
-      "Shares outstanding are modern approximations and are not reconstructed point-in-time historically.",
-      "Only dates available across benchmark + all 10 symbols are used (intersection alignment).",
-      "Signals use market-cap ranking at day t close and execute on day t+1.",
-      "Base scenario applies explicit turnover cost + hysteresis; optimistic/pessimistic are fill stress bounds."
-    ],
-    "returnMode": "total-return",
-    "execution": {
-      "signalLagDays": 1,
-      "executionVenue": "next-day-open",
-      "spreadBpsPerSide": 5,
-      "impactBpsPerSide": 7,
-      "totalCostBpsPerTurnover": 12,
-      "snp1LeaderAdvantageBps": 35,
-      "snp10BufferRanks": 2
-    },
-    "dividendModel": {
-      "mode": "proxy",
-      "source": "modeled annual dividend yields (benchmark + constituents)",
-      "benchmarkAnnualYield": 0.018,
-      "constituentAnnualYieldBySymbol": {
-        "XOM": 0.034,
-        "IBM": 0.043,
-        "GE": 0.003,
-        "KO": 0.03,
-        "PG": 0.024,
-        "JNJ": 0.03,
-        "CVX": 0.041,
-        "MMM": 0.036,
-        "CAT": 0.018,
-        "MRK": 0.027
-      },
-      "dailyYieldConvention": "annualYield/252 simple daily carry"
-    },
-    "dataSource": {
-      "provider": "stooq",
-      "benchmarkSymbol": "^spx",
-      "benchmarkProxyLabel": "S&P 500 price proxy (^SPX) + modeled dividend carry",
-      "benchmarkTotalReturnAvailableFromSource": false,
-      "benchmarkTotalReturnSymbolTried": [
-        "^spxt",
-        "^spxtr",
-        "^sp500tr"
-      ],
-      "constituentSymbols": [
-        "XOM",
-        "IBM",
-        "GE",
-        "KO",
-        "PG",
-        "JNJ",
-        "CVX",
-        "MMM",
-        "CAT",
-        "MRK"
-      ],
-      "symbolToStooq": {
-        "XOM": "xom.us",
-        "IBM": "ibm.us",
-        "GE": "ge.us",
-        "KO": "ko.us",
-        "PG": "pg.us",
-        "JNJ": "jnj.us",
-        "CVX": "cvx.us",
-        "MMM": "mmm.us",
-        "CAT": "cat.us",
-        "MRK": "mrk.us"
-      },
-      "rankingMethod": "close * static sharesOutstanding proxy",
-      "alignedUniverseCount": 10
-    },
+    "generatedAt": "2026-03-08T08:55:08.274Z",
+    "formulaVersion": "pit-membership-public-noauth-v3",
+    "commitSha": "03b0023",
     "supportedTimeframesYears": [
       5,
       10,
