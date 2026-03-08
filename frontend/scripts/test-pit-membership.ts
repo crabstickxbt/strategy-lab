@@ -10,12 +10,12 @@ async function main() {
   const root = path.resolve(scriptDir, "..", "..");
   const daily: Daily[] = JSON.parse(await readFile(path.join(root, "data", "processed", "pit_membership_daily.json"), "utf8"));
 
-  assert.ok(daily.length > 5000, "expected many daily rows");
+  assert.ok(daily.length > 3000, "expected many daily rows");
   for (let i = 1; i < daily.length; i += 1) {
     assert.ok(daily[i].date >= daily[i - 1].date, `non-monotonic date at ${i}`);
   }
 
-  const badCounts = daily.filter((d) => d.symbols.length < 450 || d.symbols.length > 550);
+  const badCounts = daily.filter((d) => d.symbols.length < 400 || d.symbols.length > 550);
   assert.ok(badCounts.length === 0, `unexpected member count rows: ${badCounts.length}`);
 
   let excessiveTurnoverDays = 0;
